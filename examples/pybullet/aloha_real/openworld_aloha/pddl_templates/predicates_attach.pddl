@@ -1,6 +1,0 @@
-    ; LearnedAttach predicates
-    (PlanArmGripper ?arm ?s ?sk ?sp ?lg)
-    (LearnedPick ?arm ?obj ?p ?lg ?aq ?at)
-    (ImitateGrasp ?sk ?a ?o ?lg)
-    (ImitateTraj ?arm ?at)
-    (Grasp ?a ?o ?lg)
