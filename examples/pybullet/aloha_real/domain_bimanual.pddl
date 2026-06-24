@@ -1,0 +1,168 @@
+; TODO: consider 2-arm collision, e.g., UnsafeConf, UnsafeControl
+; question: should UnsafeApproach specify arm?
+(define (domain pick-and-place)
+  (:requirements :strips :equality)
+  (:predicates
+    (Stackable ?o ?r)
+    (Sink ?r)
+    (Stove ?r)
+
+    (Pose ?o ?p)
+    (Grasp ?o ?g)
+    (Kin ?arm ?o ?p ?g ?q ?t)
+    (FreeMotion ?arm ?q1 ?t ?q2)
+    (HoldingMotion ?arm ?q1 ?t ?q2 ?o ?g)
+    (Supported ?o ?p ?r)
+    (Traj ?arm ?t)
+
+    (TrajCollision ?t ?o2 ?p2)
+    (CFreePosePose ?o ?p ?o2 ?p2)
+    (CFreeApproachPose ?o ?p ?g ?o2 ?p2)
+    (CFreeTrajPose ?arm ?t ?o2 ?p2)
+
+    (AtPose ?o ?p)
+    (AtGrasp ?arm ?o ?g)
+    (IsGrasp ?arm ?o ?g)
+    (HandEmpty ?arm)
+    (AtConf ?arm ?q)
+    (Conf ?arm ?q)
+    (CanMove ?arm)
+
+    (On ?o ?r)
+    (Holding ?arm ?o)
+
+    (UnsafePose ?o ?p)
+    (UnsafeApproach ?o ?p ?g)
+    (UnsafeTraj ?arm ?t)
+
+    (IsArm ?arm)
+    (CFreeTrajConf ?arm1 ?t ?arm2 ?q2)
+
+    (Inserted ?o1 ?o2)
+    (PreInsertionLatent ?arm ?q)
+    ; (AtPreBiInsertionLatent ?arm1 ?arm2 ?q1 ?q2)
+    (AtPreInsertionGraph ?o1 ?o2 ?arm1 ?arm2 ?q1 ?q2 ?g1 ?g2)
+    (PegLike ?o)
+    (SocketLike ?o)
+    (LeftArm ?arm)
+    (RightArm ?arm)
+    (CFreeInsertion ?arm1 ?arm2 ?q1 ?q2 ?o1 ?g1 ?o2 ?g2 ?o ?p)
+    (UnsafeInsertion ?arm1 ?arm2 ?q1 ?q2 ?o1 ?g1 ?o2 ?g2)
+    ; External predicates
+    ; (ConfConfCollision ?arm ?control ?obj ?pose)
+  )
+
+  (:action move_free
+    :parameters (?arm ?q1 ?q2 ?t)
+    :precondition (and (IsArm ?arm) (FreeMotion ?arm ?q1 ?t ?q2)
+                       (AtConf ?arm ?q1) (HandEmpty ?arm) (CanMove ?arm)
+                       (not (UnsafeTraj ?arm ?t))
+                  )
+    :effect (and (AtConf ?arm ?q2)
+                 (not (AtConf ?arm ?q1)) (not (CanMove ?arm)))
+  )
+  (:action move_holding
+    :parameters (?arm ?q1 ?q2 ?o ?g ?t)
+    :precondition (and (IsArm ?arm) (HoldingMotion ?arm ?q1 ?t ?q2 ?o ?g)
+                       (AtConf ?arm ?q1) (AtGrasp ?arm ?o ?g) (CanMove ?arm)
+                       (not (UnsafeTraj ?arm ?t))
+                  )
+    :effect (and (AtConf ?arm ?q2)
+                 (not (AtConf ?arm ?q1)) (not (CanMove ?arm)))
+  )
+
+  (:action pick
+    :parameters (?arm ?o ?p ?g ?q ?t)
+    :precondition (and (IsArm ?arm)   (Kin ?arm ?o ?p ?g ?q ?t)
+                       (AtPose ?o ?p) (HandEmpty ?arm) (AtConf ?arm ?q) (IsGrasp ?arm ?o ?g)
+                       (not (UnsafeApproach ?o ?p ?g))
+                       (not (UnsafeTraj ?arm ?t))
+                  )
+    :effect (and (AtGrasp ?arm ?o ?g) (CanMove ?arm)  (Holding ?arm ?o)
+                 (not (AtPose ?o ?p)) (not (HandEmpty ?arm)))
+  )
+  (:action place
+    :parameters (?arm ?o ?p ?g ?q ?t)
+    :precondition (and (IsArm ?arm)(Kin ?arm ?o ?p ?g ?q ?t)
+                       (AtGrasp ?arm ?o ?g) (IsGrasp ?arm ?o ?g) (AtConf ?arm ?q)
+                       (not (UnsafePose ?o ?p))
+                       (not (UnsafeApproach ?o ?p ?g))
+                       (not (UnsafeTraj ?arm ?t))
+                  )
+    :effect (and (AtPose ?o ?p) (HandEmpty ?arm) (CanMove ?arm)
+                 (not (AtGrasp ?arm ?o ?g))
+                 (not (Holding ?arm ?o)))
+  )
+
+  (:action BiInsert
+    :parameters (?o1 ?o2 ?arm1 ?arm2 ?q1 ?q2 ?g1 ?g2)
+    :precondition (and (IsArm ?arm1) (IsArm ?arm2) (not (= ?arm1 ?arm2)) 
+                         (Grasp ?o1 ?g1) (Grasp ?o2 ?g2)
+                        (AtPreInsertionGraph ?o1 ?o2 ?arm1 ?arm2 ?q1 ?q2 ?g1 ?g2)
+                       (PreInsertionLatent ?arm1 ?q1) (PreInsertionLatent ?arm2 ?q2)  ; can be replaced by latent space
+                        (AtConf ?arm1 ?q1) (AtConf ?arm2 ?q2)
+                      ; (AtPreBiInsertionLatent ?arm1 ?arm2 ?q1 ?q2)
+                       (not (UnsafeInsertion ?arm1 ?arm2 ?q1 ?q2 ?o1 ?g1 ?o2 ?g2)) 
+                  )
+    ; NOTE: derived predicates cannot be used in the effect (https://baldur.iti.kit.edu/plan/files/getting-started-with-planning.pdf)
+    :effect (and (Inserted ?o1 ?o2) (CanMove ?arm1) (CanMove ?arm2)
+                  (AtGrasp ?arm1 ?o1 ?g1) ; o2 attached to o1
+                  (not (AtGrasp ?arm2 ?o2 ?g2))
+                  ; AtLatent(?q1 ?q2)
+            )
+  )
+
+  (:derived (AtPreInsertionGraph ?o1 ?o2 ?arm1 ?arm2 ?q1 ?q2 ?g1 ?g2)
+      (and (AtGrasp ?arm1 ?o1 ?g1) (AtGrasp ?arm2 ?o2 ?g2) 
+                       (AtConf ?arm1 ?q1) (AtConf ?arm2 ?q2)
+                       (SocketLike ?o1) (PegLike ?o2)              ; recgonized from perception
+                        (LeftArm ?arm1) (RightArm ?arm2)          ; Current imitation learning is not exchangable
+    ) 
+  )
+  
+
+  (:derived (On ?o ?r)
+    (exists (?p) (and (Supported ?o ?p ?r)
+                      (AtPose ?o ?p)))
+  )
+  ; (:derived (Holding ?o)
+  ;   (exists (?g) (and (Grasp ?o ?g)
+  ;                     (AtGrasp ?arm ?o ?g)))
+  ; )
+
+  (:derived (UnsafePose ?o ?p)
+    (exists (?o2 ?p2) (and (Pose ?o ?p) (Pose ?o2 ?p2) (not (= ?o ?o2))
+                           (not (CFreePosePose ?o ?p ?o2 ?p2))
+                           (AtPose ?o2 ?p2)))
+  )
+  (:derived (UnsafeApproach ?o ?p ?g)
+    (exists (?o2 ?p2) (and (Pose ?o ?p) (Grasp ?o ?g) (Pose ?o2 ?p2) (not (= ?o ?o2))
+                           (not (CFreeApproachPose ?o ?p ?g ?o2 ?p2))
+                           (AtPose ?o2 ?p2)))
+  )
+  ; traj is already void another rbt?
+  (:derived (UnsafeTraj ?arm1 ?t)
+      ; (or    ; collision avoidance with static objects that is not on-hold
+            (exists (?o2 ?p2) (and (Traj ?arm1 ?t) (Pose ?o2 ?p2)
+                           (not (CFreeTrajPose ?arm1 ?t ?o2 ?p2))
+                           ; (TrajCollision ?t ?o2 ?p2)
+                           (AtPose ?o2 ?p2)))
+            ; collision avoidance with another rbt
+            ; (exists (?arm2 ?q2) (and (Traj ?arm1 ?t) (Conf ?arm2 ?q2) (not (= ?arm1 ?arm2))
+            ;                (not (CFreeTrajConf ?arm1 ?t ?arm2 ?q2))
+            ;                ; (TrajCollision ?t ?o2 ?p2)
+            ;                (AtConf ?arm2 ?q2)))                           
+        ; )
+
+  )
+
+  (:derived (UnsafeInsertion ?arm1 ?arm2 ?q1 ?q2 ?o1 ?g1 ?o2 ?g2)
+    (exists (?o ?p) (and (IsArm ?arm1) (IsArm ?arm2) (not (= ?arm1 ?arm2))
+                        (AtConf ?arm1 ?q1) (AtConf ?arm2 ?q2)
+                        (AtGrasp ?arm1 ?o1 ?g1) (AtGrasp ?arm2 ?o2 ?g2)
+                        (not (CFreeInsertion ?arm1 ?arm2 ?q1 ?q2  ?o1 ?g1 ?o2 ?g2 ?o ?p))
+                        (AtPose ?o ?p)
+                    )
+    )
+  )
+)

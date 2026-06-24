@@ -1,0 +1,37 @@
+sg_params:
+  h5_parent_dir: "/ssd1/aloha_data/cup_random"
+  skill_name: 'cup_random'
+  pre_obj_names: ['yellowcup', 'tape']
+  pre_arms: ['right', 'left']
+  eff_obj_names: []
+  output_dir: 'hdf5_out/cup_random'
+
+  left:
+    grasp:
+      x_threshold: 0.35
+      dx_threshold: -0.7
+    release:
+      x_threshold: 0.6
+      dx_threshold: 0.7
+      clip_start: 100
+
+  right:
+    grasp:
+      x_threshold: 0.35
+      dx_threshold: -0.7
+    release:
+      x_threshold: 0.6
+      dx_threshold: 0.7
+      clip_start: 100
+
+  hand_obj_dist_threshold: 0.1
+  hand_hand_dist_threshold: 0.23
+  lifted_threshold: 0.15
+  holding_truncation: 1
+
+
+LfD_params:
+  lfd_alg: 'DP'
+  DP_input: 
+    # cup_random: '/ssd1/chenyizhou/dp_ckpts/cup_random/latest.ckpt'
+    cup_random: '/ssd1/chenyizhou/dp_ckpts/cup_random/20demos/latest.ckpt'

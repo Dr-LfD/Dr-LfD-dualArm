@@ -1,0 +1,59 @@
+# contact_predictor_checkpoint: 'data/outputs/2026.05.11/14.45.50_train_keypose_transformer_handoff_cup_multi_edge_wristview/checkpoints/latest.ckpt'
+contact_predictor_checkpoint: '/ssd1/chenyizhou/contact_ckpt/cup_right_arm.ckpt'
+
+use_schema: true
+domain_path: 'examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_changes_domain.pddl'
+stream_path: 'examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_changes_stream.pddl'
+schema_config_path: 'examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_changes.json'
+
+
+sg_params:  
+  h5_parent_dir: "/ssd1/aloha_data/handoff_cup"
+  skill_name: 'handoff_cup'
+  # skill_names: ['bimanual_0', 'grasp']
+  skill_type: 'bimanualOr'
+  pre_obj_names: ['cup']
+  pre_arms: ['right']
+  eff_obj_names: ['cup']
+  eff_arms: ['left']
+  output_dir: 'hdf5_out/handoff_cup'
+  related_rbts: ['right', 'left']
+  schema:
+    path: '../aloha_cfgs/handoff_cup_changes.json'
+
+  equi_ckpt_name: "logs/train/aloha_handoff_cup/handoff_grasp_128_new.pth" 
+  # equi_ckpt_name: "logs/train/aloha_handoff_cup/handoff_grasp128_ddim.pth" 
+  biop_ckpt_name: "logs/train/aloha_handoff_cup/handoff_biop_early.pth"
+
+# NOTE: x_threashold is revised for aloha2
+  left:
+    grasp:
+      x_threshold: -0
+      dx_threshold: -0.7
+    release:
+      x_threshold: -1.0
+      dx_threshold: 0.5
+      clip_start: 100
+
+  right:
+    grasp:
+      x_threshold: -0
+      dx_threshold: -0.7
+    release:
+      x_threshold: -1
+      dx_threshold: 0.5
+      clip_start: 100
+
+  hand_obj_dist_threshold: 0.12
+  hand_hand_dist_threshold: 0.18
+  lifted_threshold: 0.15
+  holding_truncation: 10
+
+LfD_params:
+  lfd_alg: 'DP'
+  env_type: 'real'
+  DP_path: '/home/xuhang/Desktop/yzchen_ws/Diffusion-Policy/'
+  DP_input: 
+    # bimanual_handoff_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/latest_3view.ckpt'
+    # bimanual_handoff_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/dp_h32.ckpt'
+    bimanual_handoff_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/cluttered.ckpt'

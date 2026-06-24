@@ -1,0 +1,66 @@
+robot_name: 'dualfranka'
+# h5_parent_dir: "/home/robotics/CoMa_code_clean/equibot_abstract/data/screwdriver_franka/original"
+h5_parent_dir: "/home/robotics/Desktop/teleop_data/screwdriver/"
+use_gui: True
+text_prompt: 'screwdriver.'
+temp_vis_dir: 'examples/pybullet/aloha_real/openworld_aloha/estimation/temp_vis/' 
+data_type: 'real'
+real_execute: True
+
+task_name: 'screwdriver_franka'
+pre_obj_names: ['screwdriver']
+pre_arms: ['left']
+output_dir: 'hdf5_out/franka_screwdriver'
+predict_effect: False
+filter_surface: False
+
+left:
+  grasp:
+    x_threshold: 0.8
+    dx_threshold: -0.5
+  release:
+    x_threshold: 0.6
+    dx_threshold: 0.5
+    clip_start: 100
+
+right:
+  grasp:
+    x_threshold: 0.8
+    dx_threshold: -0.5
+  release:
+    x_threshold: 0.6
+    dx_threshold: 0.5
+    clip_start: 100
+
+hand_obj_dist_threshold: 0.08
+hand_hand_dist_threshold: 0.14
+lifted_threshold: 0.05
+holding_truncation: 5
+
+active_cams: ['cam2', 'cam1']
+cam1_name: 'cam_front'
+cam1_ext_json: 'franka_cam_front.json'
+cam2_name: 'cam_high'
+cam2_ext_json: 'franka_cam_high.json'
+cam1_img_dir: 'franka_cam1'
+cam2_img_dir: 'franka_cam2'
+calibratedOnCamlink: False
+random_rot_camera: False
+
+execution:
+  teleport: True
+  pyb_env_addon: ['gearbox']
+  refine_num: 40
+  pose_control: True
+  use_precomputed_path: False
+  motion_tolerance: 0.07
+  monitor_switch_t: 30
+  max_lfd_steps: 400
+  lfd_alg: 'DP'
+  DP_path: '/home/robotics/hku/Diffusion-Policy/'
+  DP_input: '/home/robotics/hku/Diffusion-Policy/data/outputs/fm/train_flow_match_unet_image_franka_screwdriver_ee/checkpoints/latest.ckpt'
+  # DP_input: '/home/robotics/hku/Diffusion-Policy/data/outputs/dp/train_diffusion_unet_image_franka_screwdriver_ee/checkpoints/latest.ckpt'
+  DP_output: './data/eval/screwdriver/'
+  DP_num_inference_steps: 2
+  # DP_num_inference_steps: 20
+  DP_scale: 4

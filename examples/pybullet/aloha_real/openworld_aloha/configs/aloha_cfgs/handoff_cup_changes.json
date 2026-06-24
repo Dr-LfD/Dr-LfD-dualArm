@@ -1,0 +1,151 @@
+{
+  "initial_graph": [
+    [
+      "cup",
+      "table"
+    ],
+    [
+      "left_arm",
+      "table"
+    ],
+    [
+      "right_arm",
+      "table"
+    ]
+  ],
+  "ModeChangeDetection": [
+    {
+      "graph_number": 1,
+      "contact_changes": [
+        [
+          [
+            "right_arm",
+            "cup"
+          ],
+          "add"
+        ],
+        [
+          [
+            "cup",
+            "table"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "grasp",
+      "effect_detection": {
+        "backend": "contact_predictor",
+        "contact_edge": "right_arm_cup",
+        "threshold": 0.5,
+        "skip_frame": 3,
+        "camera_names": [
+          "cam_wrist"
+        ],
+        "robot_camera_map": {
+          "right_arm": "cam_wrist"
+        },
+        "obs_key_map": {
+          "cam_wrist": "cam_right_wrist"
+        }
+      }
+    },
+    {
+      "graph_number": 2,
+      "contact_changes": [
+        [
+          [
+            "left_arm",
+            "cup"
+          ],
+          "add"
+        ],
+        [
+          [
+            "right_arm",
+            "cup"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "bimanual handoff",
+      "effect_detection": {
+        "hand_hand_dist_threshold": 0.18,
+        "hand_hand_dist_comparison": "gt",
+        "left_gripper_close_threshold": -0.8,
+        "right_gripper_open_threshold": -1.2,
+        "left_gripper_comparison": "lt",
+        "right_gripper_comparison": "gt",
+        "monitor_switch_t": 3
+      }
+    },
+    {
+      "graph_number": 3,
+      "contact_changes": [
+        [
+          [
+            "cup",
+            "table"
+          ],
+          "add"
+        ],
+        [
+          [
+            "left_arm",
+            "cup"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "place"
+    }
+  ],
+  "instantiated_streams": [
+    {
+      "name": "sample-grasp-traj_0",
+      "template": "sample-grasp-traj",
+      "skill_index": 0,
+      "skill": "right_arm_grasp_cup",
+      "arm": "right_arm",
+      "object": "cup"
+    },
+    {
+      "name": "sample-biop-keypose_1",
+      "template": "sample-biop-keypose",
+      "skill_index": 1,
+      "skill": "bimanual_0",
+      "arm1": "left_arm",
+      "arm2": "right_arm",
+      "eff_grasps": [
+        [
+          "left_arm",
+          "cup",
+          "left_arm_place_cup"
+        ]
+      ]
+    },
+    {
+      "name": "test-cfree-bioperation-pose_1",
+      "template": "test-cfree-bioperation-pose",
+      "skill_index": 1,
+      "skill": "bimanual_0",
+      "arm1": "left_arm",
+      "arm2": "right_arm",
+      "eff_grasps": [
+        [
+          "left_arm",
+          "cup",
+          "left_arm_place_cup"
+        ]
+      ]
+    },
+    {
+      "name": "sample-place-traj_2",
+      "template": "sample-place-traj",
+      "skill_index": 2,
+      "skill": "left_arm_place_cup",
+      "arm": "left_arm",
+      "object": "cup",
+      "surface": "table"
+    }
+  ]
+}

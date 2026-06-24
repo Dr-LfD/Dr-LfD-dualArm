@@ -1,0 +1,116 @@
+defaults:
+  - diffGenBase
+
+use_wandb: false
+
+training:
+  # ckpt: "logs/train/dmg_assembly/ckpt_grasp.pth" 
+  # ckpt: "logs/train/dmg_assembly/ckpt_rev_essential.pth"
+  # ckpt: "logs/train/dmg_assembly/ckpt_4pt.pth"
+  ckpt: "logs/train/dmg_assembly/ckpt_separate.pth"
+  eval_interval: 1
+  num_epochs: 2000
+
+env:
+  env_class: 'dmg_assembly'
+  num_eef: 2
+  dof: 7
+  max_episode_length: 50
+
+agent:
+  # agent_name: aloha
+  # agent_name: compaloha
+  agent_name: dmg
+
+model:
+  down_dims: [128, 256, 512]
+### use VDGCNN and transfer from pretrained model
+  hidden_dim: 256
+
+  obs_horizon: 1
+  pred_horizon: 8
+  
+  separate_encoder: False
+  separate_policy: True
+
+  encoder:
+    backbone_type: VDGCNN
+    backbone_args: 
+      num_layers: 7
+      preload_path: "pretrained/chairs.pt"
+
+  language_encoder_cfg:
+    network_name: MLPEncoder
+    input_size: 768
+    hidden_size: 256
+    num_layers: 1
+
+data:
+  dataset:
+    num_points: 128
+    n_use: 100
+    # uniskills: ['grasp', 'contact']
+    # skill_names: ['grasp_piece_1', 'grasp_piece_2', 'piece_2_contact_piece_1', 'piece_1_contact_base']
+    # conditioned_objects: ['piece_1', 'piece_2', 'piece_1', 'base']
+    uniskills: ['grasp']
+    skill_names: ['robot0_grasp_piece_1', 'robot1_grasp_piece_2', 'bimanual_0']
+    conditioned_objects: ['piece_1', 'piece_2', 'None']
+    # dataset_type: 'robosuite_integrate_hdf5_traj'
+    dataset_type: 'robosuite_separate_hdf5_traj'
+
+    is_obj_centric: True
+    is_add_bottom: True
+    downsample_method: 'fps'
+    rot_aug: True
+    
+    embedding_cache_dir: "./data/bert"
+
+    # eef_representation: "4pts"
+    eef_representation: "3vec"
+
+    original_gripper_pcd: [[0.10, 0.01, 0], 
+                            [0.03, -0.04, 0],
+                            [0.02, 0.05, 0],
+                            [0,0,0]]
+
+
+shape_meta: &shape_meta
+  # acceptable types: rgb, low_dim
+  obs:
+    agentview_image:
+      shape: [3, 128, 128]
+      type: rgb
+    birdview_image:
+      shape: [3, 128, 128]
+      type: rgb
+    frontview_image:
+      shape: [3, 128, 128]
+      type: rgb
+    robot0_eye_in_hand_image:
+      shape: [3, 128, 128]
+      type: rgb
+    robot0_eef_pos:
+      shape: [3]
+      # type default: low_dim
+    robot0_eef_quat:
+      shape: [4]
+    robot0_gripper_qpos:
+      shape: [2]
+    robot1_eye_in_hand_image:
+      shape: [3, 128, 128]
+      type: rgb
+    robot1_eef_pos:
+      shape: [3]
+      # type default: low_dim
+    robot1_eef_quat:
+      shape: [4]
+    robot1_gripper_qpos:
+      shape: [2]
+  action: 
+    shape: [14]
+
+eval:
+  history_bid: 10
+
+
+

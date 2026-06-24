@@ -1,0 +1,125 @@
+{
+    "objects": {
+    "robot_left": [],
+    "needle_obj": [
+      "CanPick"
+    ],
+    "tripod_obj": [
+      "CanPick"
+    ]
+  },
+  
+  "initial_graph": [
+    [
+      "needle_obj",
+      "table"
+    ],
+    [
+      "tripod_obj",
+      "table"
+    ],
+    [
+      "robot0",
+      "table"
+    ],
+    [
+      "robot1",
+      "table"
+    ]
+  ],
+  "ModeChangeDetection": [
+    {
+      "graph_number": 1,
+      "contact_changes": [
+        [
+          [
+            "robot0",
+            "tripod_obj"
+          ],
+          "add"
+        ],
+        [
+          [
+            "tripod_obj",
+            "table"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "grasp"
+    },
+    {
+      "graph_number": 2,
+      "contact_changes": [
+        [
+          [
+            "robot1",
+            "needle_obj"
+          ],
+          "add"
+        ],
+        [
+          [
+            "needle_obj",
+            "table"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "grasp"
+    },
+    {
+      "graph_number": 3,
+      "contact_changes": [
+        [
+          [
+            "needle_obj",
+            "tripod_obj"
+          ],
+          "add"
+        ]
+      ],
+      "description": "attach object",
+      "effect_detection": {
+        "hand_hand_dist_threshold": 0.35,
+        "monitor_switch_t": 3
+      }
+    }
+  ],
+  "instantiated_streams": [
+    {
+      "name": "sample-grasp-traj_0",
+      "template": "sample-grasp-traj",
+      "skill_index": 0,
+      "skill": "robot0_grasp_tripod_obj",
+      "arm": "robot0",
+      "object": "tripod_obj"
+    },
+    {
+      "name": "sample-grasp-traj_1",
+      "template": "sample-grasp-traj",
+      "skill_index": 1,
+      "skill": "robot1_grasp_needle_obj",
+      "arm": "robot1",
+      "object": "needle_obj"
+    },
+    {
+      "name": "sample-biop-keypose_2",
+      "template": "sample-biop-keypose",
+      "skill_index": 2,
+      "skill": "bimanual_0",
+      "arm1": "robot0",
+      "arm2": "robot1",
+      "eff_grasps": []
+    },
+    {
+      "name": "test-cfree-bioperation-pose_2",
+      "template": "test-cfree-bioperation-pose",
+      "skill_index": 2,
+      "skill": "bimanual_0",
+      "arm1": "robot0",
+      "arm2": "robot1",
+      "eff_grasps": []
+    }
+  ]
+}

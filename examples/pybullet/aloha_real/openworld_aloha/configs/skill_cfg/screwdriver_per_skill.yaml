@@ -1,0 +1,55 @@
+contact_predictor_checkpoint: '/ssd1/chenyizhou/contact_ckpt/screwdriver_left_arm.ckpt'
+
+
+sg_params:
+  h5_parent_dir: "/ssd1/aloha_data/screwdriver_noisy/"
+  skill_name: 'screwdriver'
+  skill_type: 'bimanualOr'
+  pre_obj_names: ['screwdriver']
+  pre_arms: ['left']
+  eff_obj_names: []
+  eff_arms: []
+  output_dir: 'hdf5_out/screwdriver'
+  related_rbts: ['left', 'right']
+  schema:
+    path: '../aloha_cfgs/screwdriver_changes.json'
+
+# uncomment me after training obj-centric primitives
+  equi_ckpt_name: "logs/train/aloha_screwdriver/sdp/grasp512_fixequi.pth"
+  # equi_ckpt_name: "logs/train/aloha_screwdriver/fix_equi/ckpt01999.pth"
+  biop_ckpt_name: "logs/train/aloha_screwdriver/sdp/biop_early.pth"
+  # equi_config_name: "diffGen_handoff_cup"
+
+# NOTE: x_threashold is revised for aloha2
+  left:
+    grasp:
+      x_threshold: -0
+      dx_threshold: -0.7
+    release:
+      x_threshold: -1.0
+      dx_threshold: 0.5
+      clip_start: 100
+
+  right:
+    grasp:
+      x_threshold: -0
+      dx_threshold: -0.7
+    release:
+      x_threshold: -1
+      dx_threshold: 0.5
+      clip_start: 100
+      
+  hand_obj_dist_threshold: 0.1
+  hand_hand_dist_threshold: 0.18
+  lifted_threshold: 0.1
+  holding_truncation: 1
+
+LfD_params:
+  lfd_alg: 'DP'
+  env_type: 'real'
+  DP_path: '/home/xuhang/Desktop/yzchen_ws/Diffusion-Policy/'
+  DP_input: 
+    # bimanual_screwdriver_per_skill: '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/dp_3view/latest.ckpt'  
+    bimanual_screwdriver_per_skill: '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/dp_3view/cluttered.ckpt'    
+    # bimanual_screwdriver_per_skill: '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/fm_3view/latest.ckpt'  
+

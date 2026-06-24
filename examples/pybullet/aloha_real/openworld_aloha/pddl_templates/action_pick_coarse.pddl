@@ -1,0 +1,18 @@
+  (:action pick
+    :parameters (?a ?g ?o ?p)
+    :precondition (and (CanPick ?o)
+                       (AtPose ?o ?p)
+                       (ArmEmpty ?a)
+                       (Grasp ?a ?o ?g)
+                       (not (Supporting ?o))
+                       (not (UnsafePregrasp ?a ?o ?p ?g)))
+    :effect (and (AtGrasp ?a ?o ?g)
+                 (CanMove ?a)
+                 (ArmHolding ?a ?o)
+                 (Holding ?o)
+                 (HasPicked ?o)
+                 (not (AtPose ?o ?p))
+                 (not (ArmEmpty ?a))
+                ;  (not (ConfidentInPose ?o ?p))
+
+                 ))

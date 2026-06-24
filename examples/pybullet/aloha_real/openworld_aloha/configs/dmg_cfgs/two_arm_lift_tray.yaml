@@ -1,0 +1,58 @@
+use_gui: True
+teleport: True
+robot_name: 'pandadual'
+vid_save_path: 'lfd_tamp_vids'
+text_prompt:  ['pot', 'obj0', 'obj1']
+diffgen_data_path: '/home/user/yzchen_ws/imitation_learning/dexmimicgen/'
+env_dir: '/home/user/yzchen_ws/imitation_learning/dexmimicgen/'
+
+sg_params:
+  task_name: 'two_arm_lift_tray'
+  robots: ['robot0', 'robot1']
+  interested_objs: 
+    'pot': ['CanLift']
+    'obj0': ['Movable', 'Graspable', 'CanPick']
+    'obj1': ['Movable', 'Graspable', 'CanPick']
+
+  interested_skills:
+    grasp_obj0:
+      type: 'Grasp'
+      side: 'left'
+      conditioned_objects: ['obj0']
+    grasp_obj1:
+      type: 'grasp'
+      side: 'right'
+      conditioned_objects: ['obj1']
+    # obj0_contact_tray:
+    #   type: 'contact'
+    #   side: 'left'
+    #   conditioned_objects: ['pot']
+    # obj1_contact_piece1:
+    #   type: 'contact'
+    #   side: 'right'
+    #   conditioned_objects: ['piece1']
+
+  hand_hand_dist_threshold: 0.35
+  hand_obj_dist_threshold: 0.1
+  obj_obj_dist_threshold: 0.15
+  lifted_threshold: 0.02
+  
+  grasp:
+    x_threshold: 0.025
+    dx_threshold: -0.02
+  release:
+    x_threshold: 0.035
+    dx_threshold: 0.02
+    clip_start: 100
+
+
+  learned_checker: False
+
+  output_dir: 'hdf5_out/two_arm_lift_tray'
+
+
+
+  skillwise_sgs_path: 'datasets/pc_demos/two_arm_lift_tray/raw/two_arm_lift_tray_demo_0_pcd.hdf5'
+
+LfD_params:
+  lfd_alg: 'DMG'

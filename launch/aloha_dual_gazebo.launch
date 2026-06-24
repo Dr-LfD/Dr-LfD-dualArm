@@ -1,0 +1,72 @@
+<launch>
+
+  <arg name="show_gripper_bar"                  default="true"/>
+  <arg name="show_gripper_fingers"              default="true"/>
+  <arg name="world_name"                        default="$(find interbotix_xsarm_gazebo)/worlds/xsarm_gazebo.world"/>
+  <arg name="gui"                               default="true"/>
+  <arg name="debug"                             default="false"/>
+  <arg name="paused"                            default="true"/>
+  <arg name="recording"                         default="false"/>
+  <arg name="use_sim_time"                      default="true"/>
+  <arg name="use_position_controllers"          default="false"/>
+  <arg name="use_trajectory_controllers"        default="false"/>
+
+  <env name="GAZEBO_RESOURCE_PATH"              value="$(find interbotix_xsarm_gazebo)"/>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name"                        value="$(arg world_name)"/>
+    <arg name="gui"                               value="$(arg gui)" />
+    <arg name="debug"                             value="$(arg debug)" />
+    <arg name="paused"                            value="$(arg paused)"/>
+    <arg name="recording"                         value="$(arg recording)"/>
+    <arg name="use_sim_time"                      value="$(arg use_sim_time)"/>
+  </include>
+
+  <group if="$(arg use_trajectory_controllers)">
+
+    <rosparam file="$(find dual_vx300s_config)/config/$(arg robot_model)_trajectory_controllers.yaml" command="load"/>
+
+    <node
+      name="controller_spawner"
+      pkg="controller_manager"
+      type="controller_manager"
+      respawn="false"
+      output="screen"
+      args="spawn arm_controller gripper_controller joint_state_controller"/>
+
+  </group>
+
+  <group if="$(arg use_position_controllers)">
+
+    <rosparam file="$(find dual_vx300s_config)/config/aloha_gazebo_position_controllers.yaml" command="load"/>
+
+
+    <node 
+      name="controller_spawner"
+      pkg="controller_manager"
+      type="controller_manager"
+      respawn="false"
+      output="screen"
+      args="spawn joint_state_controller waist_controller shoulder_controller
+                  elbow_controller forearm_roll_controller wrist_angle_controller
+                  wrist_rotate_controller left_finger_controller right_finger_controller"/>
+
+  </group>
+
+  <include  file="$(find pddlstream_aloha)/launch/aloha_description.launch">
+    <arg name="use_rviz"                          value="false"/>
+    <arg name="use_joint_pub"                     value="true"/>
+    <arg name="rate"                              value="100"/>
+    <arg name="source_list"                       value="[move_group/fake_controller_joint_states]"/>
+  </include>
+
+
+  <node
+    name="urdf_spawner"
+    pkg="gazebo_ros"
+    type="spawn_model"
+    respawn="false"
+    output="screen"
+	  args="-urdf -model aloha -param robot_description"/>
+
+</launch>

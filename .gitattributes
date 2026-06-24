@@ -1,0 +1,12 @@
+vision_utils/trained_models/*.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/trained_models/checkpoints/*.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_depth_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_rgbd_cat_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_rgbd_early_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_rgbd_add_crop_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_rgbd_add_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_rgbd_cat_crop_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_rgbd_early_crop_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_color_crop_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_color_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+vision_utils/ucn/data/checkpoints/seg_resnet34_8s_embedding_cosine_depth_crop_sampling_epoch_16.checkpoint.pth filter=lfs diff=lfs merge=lfs -text

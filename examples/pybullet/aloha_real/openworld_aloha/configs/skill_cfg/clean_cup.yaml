@@ -1,0 +1,42 @@
+sg_params:
+  h5_parent_dir: "/ssd1/aloha_data/clean_cup"
+  skill_name: 'clean_cup'
+  skill_type: 'bimanualAnd'
+  pre_obj_names: ['cup','sponge']
+  # additional_objects: ['plunger']
+  pre_arms: ['left', 'right']
+  eff_obj_names: []
+  output_dir: 'hdf5_out/clean_cup'
+
+  left:
+    grasp:
+      x_threshold: 0.35
+      dx_threshold: -0.7
+    release:
+      x_threshold: 0.2
+      dx_threshold: 0.7
+      clip_start: 100
+
+  right:
+    grasp:
+      x_threshold: 0.35
+      dx_threshold: -0.7
+    release:
+      x_threshold: 0.4
+      dx_threshold: 0.5
+      clip_start: 100
+
+  hand_obj_dist_threshold: 0.1
+  hand_hand_dist_threshold: 0.2
+  lifted_threshold: 0.15
+  holding_truncation: 1
+
+
+LfD_params:
+  lfd_alg: 'DP'
+  env_type: 'real'
+  DP_path: '/home/xuhang/Desktop/yzchen_ws/Diffusion-Policy/'
+  DP_input: 
+    # clean_cup: '/ssd1/chenyizhou/dp_ckpts/clean_cup/latest.ckpt'
+    clean_cup: '/ssd1/chenyizhou/dp_ckpts/clean_cup/20demos/latest.ckpt'
+

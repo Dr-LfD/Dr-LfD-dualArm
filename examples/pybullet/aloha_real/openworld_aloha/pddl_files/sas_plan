@@ -1,0 +1,5 @@
+(pick r1 obj1 loc1 skpick)
+(place r1 obj1 loc2 skplace)
+(pick r1 obj2 loc1 skpick)
+(place r1 obj2 loc2 skplace)
+; cost = 4 (unit cost)

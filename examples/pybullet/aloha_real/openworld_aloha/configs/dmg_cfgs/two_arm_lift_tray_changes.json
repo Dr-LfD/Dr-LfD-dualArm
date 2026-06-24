@@ -1,0 +1,60 @@
+{
+    "initial_graph": "[['blue_block', 'table'], ['green_block', 'table'], ['tray', 'table'], ['left_arm', 'table'], ['right_arm', 'table']]",
+    "ModeChangeDetection": [
+        {
+            "graph_number": 1,
+            "contact_change": "[['green_block', 'right_arm'], 'add']",
+            "description": "grasp"
+        },
+        {
+            "graph_number": 2,
+            "contact_change": "[['green_block', 'table'], 'remove']",
+            "description": "lift"
+        },
+        {
+            "graph_number": 3,
+            "contact_change": "[['green_block', 'tray'], 'add']",
+            "description": "place"
+        },
+        {
+            "graph_number": 4,
+            "contact_change": "[['green_block', 'right_arm'], 'remove']",
+            "description": "release"
+        },
+        {
+            "graph_number": 5,
+            "contact_change": "[['blue_block', 'left_arm'], 'add']",
+            "description": "grasp"
+        },
+        {
+            "graph_number": 6,
+            "contact_change": "[['blue_block', 'table'], 'remove']",
+            "description": "lift"
+        },
+        {
+            "graph_number": 7,
+            "contact_change": "[['blue_block', 'tray'], 'add']",
+            "description": "place"
+        },
+        {
+            "graph_number": 8,
+            "contact_change": "[['blue_block', 'left_arm'], 'remove']",
+            "description": "release"
+        },
+        {
+            "graph_number": 9,
+            "contact_change": "[['tray', 'left_arm'], 'add']",
+            "description": "grasp"
+        },
+        {
+            "graph_number": 10,
+            "contact_change": "[['tray', 'right_arm'], 'add']",
+            "description": "grasp"
+        },
+        {
+            "graph_number": 11,
+            "contact_change": "[['tray', 'table'], 'remove']",
+            "description": "lift"
+        }
+    ]
+}

@@ -1,0 +1,9 @@
+[submodule "examples/pybullet/utils"]
+	path = examples/pybullet/utils
+	url = https://github.com/JINXER000/pybplan_utils_aloha.git
+[submodule "downward"]
+	path = downward
+	url = https://github.com/caelan/downward.git
+[submodule "examples/pybullet/aloha_real/openworld_aloha/grasp/gpd"]
+	path = examples/pybullet/aloha_real/openworld_aloha/grasp/gpd
+	url = https://github.com/JINXER000/gpd-grasp-cpp.git

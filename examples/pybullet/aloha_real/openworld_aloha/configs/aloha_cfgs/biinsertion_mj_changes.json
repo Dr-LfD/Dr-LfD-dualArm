@@ -1,0 +1,121 @@
+{
+  "initial_graph": [
+    [
+      "socket",
+      "table"
+    ],
+    [
+      "peg",
+      "table"
+    ],
+    [
+      "left_arm",
+      "table"
+    ],
+    [
+      "right_arm",
+      "table"
+    ]
+  ],
+  "ModeChangeDetection": [
+    {
+      "graph_number": 1,
+      "contact_changes": [
+        [
+          [
+            "left_arm",
+            "socket"
+          ],
+          "add"
+        ],
+        [
+          [
+            "socket",
+            "table"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "grasp"
+    },
+    {
+      "graph_number": 2,
+      "contact_changes": [
+        [
+          [
+            "right_arm",
+            "peg"
+          ],
+          "add"
+        ],
+        [
+          [
+            "peg",
+            "table"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "grasp"
+    },
+    {
+      "graph_number": 3,
+      "contact_changes": [
+        [
+          [
+            "peg",
+            "socket"
+          ],
+          "add"
+        ],
+        [
+          [
+            "peg",
+            "socket"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "bimanual insertion",
+      "effect_detection": {
+        "timeout_t": 600
+      }
+    }
+  ],
+  "instantiated_streams": [
+    {
+      "name": "sample-grasp-traj_0",
+      "template": "sample-grasp-traj",
+      "skill_index": 0,
+      "skill": "left_grasp_socket",
+      "arm": "left_arm",
+      "object": "socket"
+    },
+    {
+      "name": "sample-grasp-traj_1",
+      "template": "sample-grasp-traj",
+      "skill_index": 1,
+      "skill": "right_grasp_peg",
+      "arm": "right_arm",
+      "object": "peg"
+    },
+    {
+      "name": "sample-biop-keypose_2",
+      "template": "sample-biop-keypose",
+      "skill_index": 2,
+      "skill": "bimanual_biinsertion_mj",
+      "arm1": "left_arm",
+      "arm2": "right_arm",
+      "eff_grasps": []
+    },
+    {
+      "name": "test-cfree-bioperation-pose_2",
+      "template": "test-cfree-bioperation-pose",
+      "skill_index": 2,
+      "skill": "bimanual_biinsertion_mj",
+      "arm1": "left_arm",
+      "arm2": "right_arm",
+      "eff_grasps": []
+    }
+  ]
+}

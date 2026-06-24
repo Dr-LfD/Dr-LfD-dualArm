@@ -1,0 +1,123 @@
+{
+      "objects": {
+    "robot_left": [],
+    "piece_1": [
+      "CanPick"
+    ],
+    "piece_2": [
+      "CanPick"
+    ],
+    "base":[]
+  },
+
+  "initial_graph": [
+    [
+      "table",
+      "piece_1"
+    ],
+    [
+      "table",
+      "piece_2"
+    ],
+    [
+      "table",
+      "base"
+    ],
+    [
+      "table",
+      "robot0"
+    ],
+    [
+      "table",
+      "robot1"
+    ]
+  ],
+  "ModeChangeDetection": [
+    {
+      "graph_number": 1,
+      "contact_changes": [
+        [
+          [
+            "robot0",
+            "piece_1"
+          ],
+          "add"
+        ],
+        [
+          [
+            "piece_1",
+            "table"
+          ],
+          "remove"
+        ]
+      ],
+      "description": "grasp"
+    },
+    {
+      "graph_number": 2,
+      "contact_changes": [
+        [
+          [
+            "robot1",
+            "piece_2"
+          ],
+          "add"
+        ],
+        [
+          [
+            "piece_2",
+            "table"
+          ],
+          "remove"
+        ]
+      ],
+      "timestamps": [
+        37,
+        72
+      ],
+      "description": "grasp"
+    },
+    {
+      "graph_number": 3,
+      "contact_changes": [
+        [
+          [
+            "base",
+            "piece_1"
+          ],
+          "add"
+        ],
+        [
+          [
+            "base",
+            "piece_2"
+          ],
+          "add"
+        ]
+      ],
+      "timestamps": [
+        73,
+        94
+      ],
+      "description": "bimanual assemble"
+    }
+  ],
+  "instantiated_streams": [
+    {
+      "name": "sample-grasp-traj_0",
+      "template": "sample-grasp-traj",
+      "skill_index": 0,
+      "skill": "robot0_grasp_piece_1",
+      "arm": "robot0",
+      "object": "piece_1"
+    },
+    {
+      "name": "sample-grasp-traj_1",
+      "template": "sample-grasp-traj",
+      "skill_index": 1,
+      "skill": "robot1_grasp_piece_2",
+      "arm": "robot1",
+      "object": "piece_2"
+    }
+  ]
+}

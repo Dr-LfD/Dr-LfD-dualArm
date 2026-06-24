@@ -1,0 +1,56 @@
+defaults:
+  - diffGenBase
+
+use_wandb: false
+
+training:
+  ckpt: "logs/train/harrypotter/ckpt_28.pth" 
+  eval_interval: 1
+  num_epochs: 2000
+
+env:
+  env_class: 'mj_peg_hole'
+  num_eef: 2
+  dof: 7
+  max_episode_length: 50
+
+agent:
+  # agent_name: aloha
+  agent_name: compaloha
+
+model:
+  # noise_scheduler:
+  #   num_train_timesteps: 1000
+
+# ## use vec_pointnet and train from scratch
+#   hidden_dim: 32
+#   encoder:
+#     backbone_type: vn_pointnet
+#     backbone_args: 
+#       num_layers: 7
+#       preload_path: "pretrained/mugs.pt"
+
+### use VDGCNN and transfer from pretrained model
+  hidden_dim: 256
+  encoder:
+    backbone_type: VDGCNN
+    backbone_args: 
+      num_layers: 7
+      preload_path: "pretrained/chairs.pt"
+
+data:
+  dataset:
+    num_points: 256
+    symb_mask: ['qpose_left', 'qpose_right', 'grasp_left', 'grasp_right', None]
+    # symb_mask: ['None', 'None', 'grasp_left', 'grasp_right', None]
+    # symb_mask: [None, 'qpose_right', None, 'grasp_right', None]
+    # symb_mask: [None, None, None, 'grasp_right', None]
+    tamp_type: 'precondeff_right'
+    dataset_type: 'dual_hdf5_mini'
+    # dataset_type: 'mj_insertion_pred'
+    has_eff_list: [false, true]
+    is_obj_centric: True
+
+
+eval:
+  history_bid: 10

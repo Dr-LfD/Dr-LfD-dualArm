@@ -1,0 +1,68 @@
+robot_name: 'aloha'
+h5_parent_dir: "/ssd1/aloha_data/harrypotter"
+use_gui: True
+text_prompt: 'toy doll.brown hat.'
+temp_vis_dir: 'examples/pybullet/aloha_real/openworld_aloha/estimation/temp_vis/'
+sam_path: '/home/xuhang/Desktop/yzchen_ws/Grounded-SAM-2/'
+diffgen_data_path: '/home/xuhang/Desktop/yzchen_ws/equibot_abstract/'
+data_type: 'real'
+real_execute: True
+
+task_name: 'harrypotter'
+pre_obj_names: ['toy doll', 'brown hat']
+pre_arms: ['right', 'left']
+eff_obj_names: ['toy doll']
+eff_arms: ['right']
+output_dir: 'hdf5_out/harrypotter'
+predict_effect: True
+filter_surface: False
+
+left:
+  grasp:
+    x_threshold: 0.5
+    dx_threshold: -0.7
+  release:
+    x_threshold: 0.8
+    dx_threshold: 0.7
+    clip_start: 100
+
+right:
+  grasp:
+    x_threshold: 0.8
+    dx_threshold: -0.7
+  release:
+    x_threshold: 0.7
+    dx_threshold: 0.7
+    clip_start: 100
+
+hand_obj_dist_threshold: 0.16
+hand_hand_dist_threshold: 0.2
+lifted_threshold: 0.15
+holding_truncation: 2
+
+active_cams: ['cam2']
+cam1_img_dir: 'back_realrobot'
+cam2_img_dir: 'realrobot'
+cam1_name: 'camera_1'
+cam1_ext_json: 'back_camera_pose.json'
+cam2_name: 'camera_2'
+cam2_ext_json: 'camera_pose.json'
+calibratedOnCamlink: True
+random_rot_camera: False
+
+execution:
+  teleport: True
+  pyb_env_addon: ['lowerright_pad', 'upperright_pad']
+  refine_num: 40
+  pose_control: True
+  use_precomputed_path: False
+  motion_tolerance: 0.07
+  monitor_switch_t: 30
+  max_lfd_steps: 499
+  lfd_alg: 'DP'
+  DP_path: '/home/xuhang/Desktop/yzchen_ws/DP-HITL/'
+  DP_input: '/ssd1/chenyizhou/dp_ckpts/harrypotter/latest_40demo.ckpt'
+  DP_output: './data/eval/harrypotter/'
+  DP_max_timesteps: 800
+  DP_num_inference_steps: 10
+  DP_scale: 4
