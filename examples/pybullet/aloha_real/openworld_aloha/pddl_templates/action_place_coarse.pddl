@@ -1,0 +1,12 @@
+  (:action place
+    :parameters (?a ?g ?o ?p ?s ?sp)
+    :precondition (and (Supported ?o ?p ?s ?sp)
+                       (AtGrasp ?a ?o ?g)
+                       (AtPose ?s ?sp)
+                       (not (UnsafePose ?o ?p))
+                       (not (UnsafePregrasp ?a ?o ?p ?g)))
+    :effect (and (AtPose ?o ?p)
+                 (ArmEmpty ?a)
+                 (not (AtGrasp ?a ?o ?g))
+                 (not (ArmHolding ?a ?o))
+                 (not (Holding ?o))))

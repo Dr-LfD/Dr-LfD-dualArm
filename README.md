@@ -6,7 +6,7 @@ Source code: https://github.com/Dr-LfD/Dr-LfD-dualArm
 
 ## TODO
 
-- [ ] TAMP for DMG simulation
+- [x] TAMP for DMG simulation
 - [ ] TAMP for real ALOHA robot (constraint check + contact detection)
 - [ ] Policy learning
 - [ ] Object-centric primitive learning

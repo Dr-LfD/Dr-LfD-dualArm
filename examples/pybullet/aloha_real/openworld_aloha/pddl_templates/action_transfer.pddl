@@ -1,0 +1,10 @@
+  (:action Transfer
+    :parameters (?j ?q1 ?q2 ?o ?g ?t)
+    :precondition (and (Motion ?j ?q1 ?q2 ?t)
+                        (AtGrasp ?j ?o ?g)
+                       (CanMove ?j)
+                      ;  (or (not (OtherActive ?j)) (not (OtherNotAtKP ?j)))
+                       (AtConf ?j ?q1))
+    :effect (and (AtConf ?j ?q2)
+                 (not (AtConf ?j ?q1))
+                 (not (CanMove ?j))))

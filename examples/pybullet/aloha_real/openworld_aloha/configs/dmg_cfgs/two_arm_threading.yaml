@@ -1,0 +1,87 @@
+use_gui: False
+teleport: True
+robot_name: 'pandadual'
+vid_save_path: 'lfd_tamp_vids'
+text_prompt:  [ 'tripod_obj', 'needle_obj']
+diffgen_data_path: '${WS_ROOT}/docker_share_folder/difussion/equibot_abstract/'
+env_dir: '${WS_ROOT}/imitation_learning/dexmimicgen/'
+DP_dir: '${WS_ROOT}/TAMP-ubuntu22/ALOHA/Diffusion-Policy'
+
+# pyb_env_addon: ['table-0.8']
+pyb_env_addon: []
+franka_base_pos: null
+require_obstacle_pc: False
+
+use_schema: true
+schema_tmp_pddl_dir: '/tmp/pddlstream_aloha_debug'
+skill_yaml_paths:
+  - 'examples/pybullet/aloha_real/openworld_aloha/configs/dmg_cfgs/two_arm_threading.yaml'
+
+contact_prediction_root: '${WS_ROOT}/imitation_learning/contact_prediction'
+
+sg_params:
+  max_tamp_time: 60
+  task_name: 'two_arm_threading'
+  equi_ckpt_name: null
+  robots: ['robot0', 'robot1']
+  schema:
+    path: 'two_arm_threading_changes.json'
+  
+  interested_objs: 
+    'tripod_obj': ['Movable', 'Graspable', 'CanPick']
+    'needle_obj': ['Movable', 'Graspable', 'CanPick']
+
+  interested_primitives: ['grasp', 'bimanual']
+
+  attachment_collision_distance: 0.01
+
+  hand_hand_dist_threshold: 0.35
+  hand_obj_dist_threshold: 0.05
+  obj_obj_dist_threshold: 0.05
+  lifted_threshold: 0.02
+  
+  grasp:
+    x_threshold: 0.025
+    dx_threshold: -0.02
+  release:
+    x_threshold: 0.035
+    dx_threshold: 0.02
+    clip_start: 100
+
+
+  output_dir: 'hdf5_out/two_arm_threading'
+
+  num_points: 128
+  img_width: 128
+  img_height: 128
+
+  example_hdf5_path: 'datasets/pc_demos/two_arm_threading/raw/two_arm_threading_demo_0_pcd.hdf5'
+
+  # trained on per_skill_agent
+  equi_ckpt_name: "logs/train/dmg_threading/inhand-fps.pth" 
+  # equi_ckpt_name: "logs/train/dmg_threading/200demo_auxloss_1:6.pth"
+  biop_ckpt_name: "logs/train/dmg_threading/ckpt_perskill_jpose_far.pth"
+  equi_config_name: "threading_per_skill"
+
+  # ## trained on dmg_agent
+  # equi_config_name: "diffGen_two_arm_threading"
+
+  LfD_controller: 'OSC_POSE'
+
+LfD_params:
+  lfd_alg: 'DP'
+  DP_path: '${WS_ROOT}/TAMP-ubuntu22/ALOHA/Diffusion-Policy'
+  env_type: 'dmg'
+  DP_input: 
+    ## only trained on sg
+    two_arm_threading: '${WS_ROOT}/TAMP-ubuntu22/ALOHA/Diffusion-Policy/data/outputs/two_arm_threading/sg_100demo_0.6.ckpt' #sg_100demo_0.6.ckpt' #sg_singleview_100demo_0.780.ckpt' # sg_singleview_100demo_1.ckpt
+    ## trained on whole episode
+    # two_arm_threading: '${WS_ROOT}/TAMP-ubuntu22/ALOHA/Diffusion-Policy/data/outputs/two_arm_threading/500demos_0.340.ckpt' # epoch=1350-test_mean_score=0.500.ckpt   # 100demo_0.240.ckpt # 500demos_0.340.ckpt
+    
+  vid_record: False
+  DP_output: './data/eval/dmg_threading/'
+  DP_max_timesteps: 900
+  DP_num_inference_steps: 10
+  DP_scale: 4
+  render_obs_keys: [agentview_image , robot0_eye_in_hand_image, robot1_eye_in_hand_image]
+  # render_obs_keys: [agentview_image]

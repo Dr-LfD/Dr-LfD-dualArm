@@ -36,5 +36,6 @@ ref_doc/*
 .omx/
 *.pdf
 .vscode/
+.env
 *.log
 *.tsv

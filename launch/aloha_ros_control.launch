@@ -1,0 +1,103 @@
+<launch>
+
+  <arg name="robot_name_left"                        default="puppet_left"/>
+  <arg name="robot_name_right"                        default="puppet_right"/>
+  
+  <arg name="dof"                               default="6"/>
+
+  <arg name="xs_sdk_type" value="xs_sdk" />
+
+  <arg name="left_motor_configs"                     default="$(find dual_vx300s_config)/config/left_motor_config.yaml"/>
+ <arg name="right_motor_configs"                     default="$(find dual_vx300s_config)/config/right_motor_config.yaml"/>
+  <arg name="left_mode_configs"                      default="$(find pddlstream_aloha)/config/puppet_modes_left.yaml"/>
+  <arg name="right_mode_configs"                      default="$(find pddlstream_aloha)/config/puppet_modes_right.yaml"/>
+  <arg name="load_configs"                      default="true"/>
+
+
+  <!-- <rosparam file="$(find interbotix_xsarm_ros_control)/config/$(arg dof)dof_controllers.yaml" command="load" ns="$(arg robot_name_left)"/> -->
+  <rosparam file="$(find dual_vx300s_config)/config/hardware_left.yaml" command="load" ns="$(arg robot_name_left)"/>
+
+
+  <!-- <rosparam file="$(find interbotix_xsarm_ros_control)/config/$(arg dof)dof_controllers.yaml" command="load" ns="$(arg robot_name_right)"/> -->
+  <rosparam file="$(find dual_vx300s_config)/config/hardware_right.yaml" command="load" ns="$(arg robot_name_right)"/>
+
+    <!-- TODO: merge two controls
+  <include file="$(find interbotix_xsarm_control)/launch/xsarm_control.launch">
+    <arg name="robot_model"                       value="$(arg robot_model)"/>
+    <arg name="robot_name"                        value="$(arg robot_name)"/>
+    <arg name="base_link_frame"                   value="$(arg base_link_frame)"/>
+    <arg name="show_ar_tag"                       value="$(arg show_ar_tag)"/>
+    <arg name="use_world_frame"                   value="$(arg use_world_frame)"/>
+    <arg name="external_urdf_loc"                 value="$(arg external_urdf_loc)"/>
+    <arg name="use_rviz"                          value="$(arg use_rviz)"/>
+    <arg name="mode_configs"                      value="$(arg mode_configs)"/>
+  </include> -->
+
+
+  <include file="$(find pddlstream_aloha)/launch/aloha_description.launch">
+    <arg name="use_rviz"                          value="false"/>
+    <arg name="use_joint_pub"                     value="false"/>
+    <arg name="rate"                              value="100"/>
+  </include>
+
+  <node 
+    name="joint_state_remapper"
+    pkg="pddlstream_aloha"
+    type="joint_state_remapper.py"
+    respawn="false"
+    output="screen">
+  </node>
+
+
+ <!-- hardware for left robot -->
+
+  <node
+    name="xs_sdk"
+    pkg="interbotix_xs_sdk"
+    type="$(arg xs_sdk_type)"
+    output="screen"
+    ns="$(arg robot_name_left)">
+    <param name="motor_configs"                   value="$(arg left_motor_configs)"/>
+    <param name="mode_configs"                    value="$(arg left_mode_configs)"/>
+    <param name="load_configs"                    value="$(arg load_configs)"/>
+  </node>
+
+  <node
+    name="controller_spawner"
+    pkg="controller_manager"
+    type="controller_manager"
+    respawn="false"
+    output="screen"
+    args="spawn my_traj_controller left_arm_controller left_gripper_controller right_arm_controller right_gripper_controller">
+  </node>
+
+  <node
+    name="xs_hardware_interface"
+    pkg="interbotix_xs_ros_control"
+    type="xs_hardware_interface"
+    output="screen"
+    ns="$(arg robot_name_left)">
+  </node>
+
+<!-- hardware for right robot -->
+  <node
+    name="xs_sdk"
+    pkg="interbotix_xs_sdk"
+    type="$(arg xs_sdk_type)"
+    output="screen"
+    ns="$(arg robot_name_right)">
+    <param name="motor_configs"                   value="$(arg right_motor_configs)"/>
+    <param name="mode_configs"                    value="$(arg right_mode_configs)"/>
+    <param name="load_configs"                    value="$(arg load_configs)"/>
+  </node>
+
+
+
+  <node
+    name="xs_hardware_interface"
+    pkg="interbotix_xs_ros_control"
+    type="xs_hardware_interface"
+    output="screen" 
+    ns="$(arg robot_name_right)">
+  </node>
+</launch>

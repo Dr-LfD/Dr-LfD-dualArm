@@ -1,0 +1,3 @@
+# Marker file: identifies the repository root for repo_paths.find_repo_root().
+# Do not remove. Its directory is the authoritative REPO_ROOT regardless of the
+# directory's name, so the repo can be renamed/vendored freely.

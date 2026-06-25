@@ -1,0 +1,54 @@
+<launch>
+
+  <!-- <arg name="mode_configs"                      default="$(find interbotix_xsarm_moveit)/config/modes.yaml"/> -->
+  <arg name="use_moveit_rviz"                   default="true"/>
+  <arg name="rviz_frame"                        default="world"/>
+  <arg name="use_gazebo"                        default="false"/>
+  <arg name="use_actual"                        default="false"/>
+  <arg name="use_fake"                          default="true"/>
+  <arg name="world_name"                        default="$(find interbotix_xsarm_gazebo)/worlds/xsarm_gazebo.world"/>
+  <arg name="use_trajectory_controllers"        default="false"/>
+  <arg name="use_position_controllers"          default="true"/>
+    
+  <node 
+    name="joint_state_remapper"
+    pkg="pddlstream_aloha"
+    type="joint_state_remapper.py"
+    respawn="false"
+    output="screen">
+  </node>
+
+  <include if="$(arg use_fake)" file="$(find pddlstream_aloha)/launch/aloha_description.launch">
+    <arg name="use_rviz"                          value="false"/>
+    <arg name="use_joint_pub"                     value="false"/>
+    <arg name="rate"                              value="100"/>
+    <arg name="source_list"                       value="[move_group/fake_controller_joint_states]"/>
+  </include>
+
+
+  <include if="$(arg use_gazebo)" file="$(find pddlstream_aloha)/launch/aloha_dual_gazebo.launch">
+    <arg name="world_name"                        value="$(arg world_name)"/>
+    <arg name="use_trajectory_controllers"        value="$(arg use_trajectory_controllers)"/>
+    <arg name="use_position_controllers"          value="$(arg use_position_controllers)"/>
+  </include>
+
+  <include if="$(arg use_actual)" file="$(find pddlstream_aloha)/launch/aloha_ros_control.launch">
+    <!-- <arg name="use_rviz"                          value="false"/>
+    <arg name="mode_configs"                      value="$(arg mode_configs)"/> -->
+  </include>
+
+
+  <include file="$(find dual_vx300s_config)/launch/move_group.launch">
+    <arg name="publish_monitored_planning_scene"  value="true" />
+    <arg name="moveit_controller_manager" value="fake" />
+    <!-- <arg name="pipeline" default="ompl-chomp" /> -->
+  </include>
+
+
+
+
+  <include if="$(arg use_moveit_rviz)" file="$(find dual_vx300s_config)/launch/moveit_rviz.launch">
+    <arg name="rviz_config"                        value="$(find dual_vx300s_config)/launch/aloha.rviz"/>
+  </include>
+
+</launch>
