@@ -38,7 +38,6 @@ from examples.pybullet.aloha_real.openworld_aloha.simple_worlds import load_aloh
 from examples.pybullet.aloha_real.openworld_aloha.primitives import post_process, execute_command, map_schema_plan_args
 from examples.pybullet.aloha_real.openworld_aloha.policy_simp import estimation_policy
 from examples.pybullet.aloha_real.openworld_aloha.openworld_streams import TELEPORT
-from examples.pybullet.aloha_real.openworld_aloha.aloha_samplers import DISABLE_ALL_COLLISIONS
 
 from examples.pybullet.aloha_real.openworld_aloha.entities import Object
 from examples.pybullet.aloha_real.openworld_aloha.robot_entities import ALOHARobot, DUALfrankaRobot
@@ -182,6 +181,7 @@ def compute_TAMP_online(para, robot_entity, belief, teleport = False, **kwargs):
             match_by_category=para.get('match_by_category', True),
             use_perceived=para.get('use_perceived', True),
             planning_mode="coarse",
+            use_constraints=para.get('use_constraints', False),
             teleport=teleport, real_time_render=real_time_render, client=CLIENT, **kwargs
         )
         
@@ -234,7 +234,68 @@ def compute_TAMP_online(para, robot_entity, belief, teleport = False, **kwargs):
         )
     finally:
         TELEPORT[0] = prev_teleport
-    
+
+
+def compute_TAMP_cmd(para, robot_entity, belief, teleport=False, **kwargs):
+    """Schema-mode TAMP returning a post-processed command ``Sequence`` for real-robot execution.
+
+    Consumed by the real-robot ROS plugin; schema planning is mandatory.
+    """
+    real_time_render = True
+    teleport = para['teleport']
+    pybullet_use_gui = para['use_gui']
+
+    skill_yaml_paths = para.get('skill_yaml_paths') or []
+    skill_yaml_paths = [
+        p if os.path.isabs(p) else os.path.join(EXE_FOLDER, p)
+        for p in skill_yaml_paths
+    ]
+    tmp_pddl_dir = para.get('schema_tmp_pddl_dir')
+    if tmp_pddl_dir and not os.path.isabs(tmp_pddl_dir):
+        tmp_pddl_dir = os.path.join(EXE_FOLDER, tmp_pddl_dir)
+    planning_mode = kwargs.pop('planning_mode', None) or para.get('planning_mode', 'detailed')
+    if not (para.get('use_schema') and skill_yaml_paths):
+        raise ValueError(
+            "Schema planning is required: set use_schema=true and provide skill_yaml_paths"
+        )
+
+    problem, stream_info = pddlstream_from_schema_problem(
+        robot_entity, belief,
+        skill_yaml_paths=skill_yaml_paths,
+        tmp_pddl_dir=tmp_pddl_dir,
+        object_mapping=para.get('object_mapping'),
+        match_by_category=para.get('match_by_category', True),
+        use_perceived=para.get('use_perceived', False),
+        planning_mode=planning_mode,
+        use_constraints=para.get('use_constraints', False),
+        teleport=teleport, real_time_render=real_time_render, client=CLIENT, **kwargs
+    )
+
+    _, _, _, stream_map, init, goal = problem
+    print('Init:', init)
+    print('Goal:', goal)
+    print('Streams:', str_from_object(set(stream_map)))
+
+    saver = WorldSaver()
+    solution = plan_pddlstream_restart(
+        problem, real_time_render=real_time_render,
+        stream_info=stream_info, saver=saver, **kwargs,
+    )
+    plan, cost, evaluations, _ = solution
+
+    if para.get('use_schema') and hasattr(robot_entity, 'get_arm_group'):
+        plan = map_schema_plan_args(plan, robot_entity)
+    sequence = post_process(plan)
+
+    if pybullet_use_gui:
+        wait_for_user('Execute?')
+        # remove grippers spawned by grasp generation before executing
+        robot_entity.remove_components()
+        execute_command(sequence, teleport=False, client=CLIENT, record_refined=True)
+        wait_for_user('Finish?')
+    return sequence
+
+
 def plan_detail_mp(para, robot_entity, problem, stream_info, current_state, subgoal,
                    static_environment=None, skeleton_segment=None, **kwargs):
     remove_all_debug()

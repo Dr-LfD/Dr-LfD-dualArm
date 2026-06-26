@@ -22,9 +22,8 @@ sam3_checkpoint: null
 use_sam_server: False
 cache_masks: True
 
-diffgen_data_path: '${WS_ROOT}/equibot_abstract/'
-contact_prediction_root: '${WS_ROOT}/ContactPrediction'
-# diffgen_data_path: '${WS_ROOT}/docker_share_folder/difussion/equibot_abstract/'
+primitive_learning_path: '${PRIMITIVE_LEARNING_ROOT}'
+contact_prediction_root: '${CONTACT_PREDICTION_ROOT}'
 data_type: 'real'
 real_execute: True
 vid_save_path: 'lfd_tamp_vids'
@@ -70,7 +69,7 @@ LfD_params:
   env_type: 'real'
   # max_lfd_steps: 699
   # DP params
-  DP_path: '${WS_ROOT}/Diffusion-Policy/'
+  DP_path: '${DIFFUSION_POLICY_ROOT}/'
   # DP_input: 
   #   dummy_skill: ~ # to make DP_input a dict
   DP_output: './data/eval/clean_cup/'

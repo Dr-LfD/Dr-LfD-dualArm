@@ -1,6 +1,6 @@
   (:action place
     :parameters (?a ?g ?o ?p ?s ?sp)
-    :precondition (and (Supported ?o ?p ?s ?sp)
+    :precondition (and (Supported ?o ?p ?s ?sp){{REACHABLE_PRE}}
                        (AtGrasp ?a ?o ?g)
                        (AtPose ?s ?sp)
                        (not (UnsafePose ?o ?p))

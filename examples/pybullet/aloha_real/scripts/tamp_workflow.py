@@ -1,26 +1,15 @@
-"""Shared planning/execution workflow helpers for interleaved online TAMP.
+"""Shared, route-agnostic planning/execution helpers for the interleaved TAMP routes.
 
-Suggested structure for an ``online_tamp`` implementation:
-1. Build a ``PlanningSession`` with ``plan_online_session``.
-2. Split the global symbolic plan into lane batches / barriers in the caller.
-3. Use ``collect_lane_batch_results`` to execute batch-local planning or
-   skeleton expansion without duplicating lane iteration code.
-4. Use ``merge_batch_sequences`` to produce the executable request for a stage.
-5. Use ``build_lane_checks`` and perception in the caller to validate terminal
-   contact effects.
-6. If perception fails, use ``rollback_batch_execution`` with the exact
-   ``ActionExecutionResult`` delta from the executor instead of action-specific
-   symbolic rollback logic.
-7. Keep plugin-specific responsibilities in the caller: scheduler policy,
-   perception backend, scene refresh policy, and low-level execution backend.
+Consumed by the sim/robosuite DMG and real-robot ALOHA plugins.
 """
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
 import time
 
-from examples.pybullet.aloha_real.openworld_aloha.primitives import Graphstate, GroupTrajectory, Sequence
+from examples.pybullet.aloha_real.openworld_aloha.primitives import GroupTrajectory, Sequence
 from examples.pybullet.aloha_real.openworld_aloha.run_openworld import (
+    compute_TAMP_cmd,
     compute_TAMP_online,
 )
 
@@ -59,14 +48,6 @@ class ArmSchedulerState:
         """Advance past a completed barrier to the next phase."""
         if self.phase_quotas:
             self.phase_quotas.pop(0)
-
-
-@dataclass(frozen=True)
-class LaneAttemptResult:
-    exec_status: str = "replan"
-    successful_lanes: set = field(default_factory=set)
-    failed_lanes: set = field(default_factory=set)
-    planning_failed_lane: Optional[str] = None
 
 
 def split_sequence_per_arm(seq, pause_num=5, sides=None):
@@ -119,17 +100,6 @@ class ExecutionResult:
     status: str
 
 
-@dataclass(frozen=True)
-class LaneExecutionBundle:
-    exec_status: Optional[str] = None
-    merged_sequence: Optional[Sequence] = None
-    merged_updated_state: Optional[set] = None
-    subgoals: Any = None
-    execution_results: Any = None
-    per_lane_states: Any = None
-    planning_failed_lane: Optional[str] = None
-
-
 def preserve_arm_confs(base_state, updated_state, arms, search_facts_fn):
     preserved_state = set(updated_state)
     for arm in arms:
@@ -147,26 +117,6 @@ def rollback_batch_execution(updated_state, execution_result):
     rolled_back -= set(getattr(execution_result, "added_facts", ()))
     rolled_back |= set(getattr(execution_result, "removed_facts", ()))
     return rolled_back
-
-
-def collect_lane_batch_results(batches, plan_batch_fn):
-    sequences = []
-    updated_states = {}
-    subgoals = {}
-    execution_results = {}
-    failed_lane = None
-    for lane, batch in batches.items():
-        seq, updated_state, lane_subgoal, execution_result = plan_batch_fn(lane, batch)
-        if seq is None:
-            failed_lane = lane
-            break
-        sequences.append(seq)
-        updated_states[lane] = updated_state
-        subgoals[lane] = lane_subgoal
-        execution_results[lane] = execution_result
-    if failed_lane is not None:
-        return None, failed_lane
-    return (sequences, updated_states, subgoals, execution_results), None
 
 
 def get_action_target_object(action):
@@ -202,61 +152,17 @@ def merge_batch_sequences(sequences):
     return Sequence([cmd for seq in sequences for cmd in seq.commands])
 
 
-def execute_lane_batches(
-    batches,
-    plan_batch_fn,
-    merge_state_fn,
-    executor,
-    before_execute=None,
-    after_execute=None,
-):
-    lane_result, failed_lane = collect_lane_batch_results(
-        batches, plan_batch_fn
-    )
-    if lane_result is None:
-        return LaneExecutionBundle(
-            planning_failed_lane=failed_lane,
-        )
+def plan_offline_sequence(para, robot_entity, belief, **kwargs):
+    """Plan a full command ``Sequence`` up front (offline) via schema-mode ``compute_TAMP_cmd``.
 
-    sequences, updated_states, subgoals, execution_results = lane_result
-    merged_sequence = merge_batch_sequences(sequences)
-    if before_execute is not None:
-        before_execute(
-            batches=batches,
-            sequences=sequences,
-            subgoals=subgoals,
-            execution_results=execution_results,
-        )
-    try:
-        exec_status = execute_request(
-            executor,
-            ExecutionRequest(sequence=merged_sequence, stop_mode='replan'),
-        ).status
-    finally:
-        if after_execute is not None:
-            after_execute(
-                batches=batches,
-                sequences=sequences,
-                subgoals=subgoals,
-                execution_results=execution_results,
-            )
-    if exec_status == 'fail':
-        return LaneExecutionBundle(
-            exec_status=exec_status,
-            merged_sequence=merged_sequence,
-            subgoals=subgoals,
-            execution_results=execution_results,
-            per_lane_states=updated_states,
-        )
-
-    merged_updated_state = merge_state_fn(updated_states.values())
-    return LaneExecutionBundle(
-        exec_status=exec_status,
-        merged_sequence=merged_sequence,
-        merged_updated_state=merged_updated_state,
-        subgoals=subgoals,
-        execution_results=execution_results,
-        per_lane_states=updated_states,
+    Used by the real-robot plugin's offline path; the online interleaved path uses
+    :func:`plan_online_session` instead.
+    """
+    start_time = time.time()
+    sequence = compute_TAMP_cmd(para, robot_entity, belief, **kwargs)
+    return PlanningSession(
+        duration_tamp=time.time() - start_time,
+        sequence=sequence,
     )
 
 
@@ -280,10 +186,6 @@ def plan_online_session(para, robot_entity, belief, **kwargs):
 
 def infer_stop_mode(sequence):
     return "bc" if getattr(sequence, 'graphstate_markers', ()) else "replan"
-
-
-def make_execution_request(sequence):
-    return ExecutionRequest(sequence=sequence, stop_mode=infer_stop_mode(sequence))
 
 
 def execute_request(executor, request):

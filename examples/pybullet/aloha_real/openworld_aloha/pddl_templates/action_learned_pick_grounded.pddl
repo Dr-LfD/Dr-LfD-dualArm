@@ -3,7 +3,7 @@
     :precondition (and ({{ARM}} ?arm) ({{OBJ}} ?obj) ({{SK}} ?sk)
                       (CanPick ?obj) (AtPose ?obj ?p)
                         (not (Supporting ?obj))
-                        (LearnedPick ?arm ?obj ?p ?lg ?aq ?at)
+                        (LearnedPick ?arm ?obj ?p ?lg ?aq ?at){{REACHABLE_PRE}}
                         (ArmEmpty ?arm)
                         (ImitateGrasp ?sk ?arm ?obj ?lg)
                         (AtConf ?arm ?aq)

@@ -1,16 +1,13 @@
 # OSC_POSE absolute-EE execution variant of two_arm_three_piece_assembly
-# (run via interleaved_dmg_osc_plugin.py --task_name two_arm_three_piece_assembly_osc)
 use_gui: False
-teleport: True
 robot_name: 'pandadual'
 vid_save_path: 'lfd_tamp_vids'
 text_prompt:  ['base', 'piece_1', 'piece_2']
-diffgen_data_path: '${WS_ROOT}/docker_share_folder/difussion/equibot_abstract/'
-env_dir: '${WS_ROOT}/imitation_learning/dexmimicgen/'
+primitive_learning_path: '${PRIMITIVE_LEARNING_ROOT}'
+env_dir: '${DEXMIMICGEN_ROOT}/'
 
 # pyb_env_addon: ['table-0.8']
 pyb_env_addon: []
-franka_base_pos: null
 require_obstacle_pc: False
 
 use_schema: true
@@ -20,7 +17,6 @@ skill_yaml_paths:
 
 sg_params:
   task_name: 'two_arm_three_piece_assembly'
-  equi_ckpt_name: null
   max_tamp_time: 60
   robots: ['robot0', 'robot1']
   schema:
@@ -36,36 +32,13 @@ sg_params:
   attachment_collision_distance: -1
 
   hand_hand_dist_threshold: 0.35
-  hand_obj_dist_threshold: 0.05
-  obj_obj_dist_threshold: 0.1
-  lifted_threshold: 0.02
-
-  grasp:
-    x_threshold: 0.025
-    dx_threshold: -0.02
-  release:
-    x_threshold: 0.035
-    dx_threshold: 0.02
-    clip_start: 100
-
-  output_dir: 'hdf5_out/two_arm_three_piece_assembly'
-
-  num_points: 128
-  img_width: 128
-  img_height: 128
-
-
-  example_hdf5_path: 'datasets/pc_demos/two_arm_three_piece_assembly/raw/two_arm_three_piece_assembly_demo_0_pcd.hdf5'
-
 
   # trained on per_skill_agent
-  equi_ckpt_name: "logs/train/dmg_assembly/inhand-fps.pth"
+  equi_ckpt_name: "logs/train/dmg_assembly/200demo_inhand-fps.pth"
   biop_ckpt_name: "logs/train/dmg_assembly/ckpt_perskill_jpose.pth"
   equi_config_name: "assembly_per_skill"
 
-  LfD_controller: 'OSC_POSE'
-  ee_traj_mode: true
-  # EE-traj densification speed controls (only used when ee_traj_mode: true)
+  # EE-traj densification speed controls.
   # Smaller step_m / step_rad → more waypoints → slower grasp motion
   ee_traj_step_m: 0.01            # max translation per waypoint (metres)
   ee_traj_step_rad: 0.05          # max rotation per waypoint (radians)
@@ -74,14 +47,14 @@ sg_params:
 
 LfD_params:
   lfd_alg: 'DP'
-  DP_path: '${WS_ROOT}/TAMP-ubuntu22/ALOHA/Diffusion-Policy'
+  DP_path: '${DIFFUSION_POLICY_ROOT}'
   env_type: 'dmg'
   DP_input:
-    two_arm_three_piece_assembly: '${WS_ROOT}/TAMP-ubuntu22/ALOHA/Diffusion-Policy/data/outputs/two_arm_assembly/sg_100demo_0.65.ckpt'
-    # two_arm_three_piece_assembly: '${WS_ROOT}/TAMP-ubuntu22/ALOHA/Diffusion-Policy/data/outputs/two_arm_assembly/1000demo0.720.ckpt'
+    two_arm_three_piece_assembly: '${DIFFUSION_POLICY_ROOT}/data/outputs/two_arm_assembly/sg_100demo_0.65.ckpt'
+    # two_arm_three_piece_assembly: '${DIFFUSION_POLICY_ROOT}/data/outputs/two_arm_assembly/1000demo0.720.ckpt'
 
   # lfd_alg: 'SDP'
-  # DP_path: '${WS_ROOT}/imitation_learning/Spherical_Diffusion_Policy/'
+  # DP_path: '${SPHERICAL_DP_ROOT}/'
   # env_type: 'dmg'
   # DP_input:
   #   two_arm_three_piece_assembly: 'data/outputs/two_arm_three_piece_assembly/epoch=0440-test_mean_score=1.000.ckpt'

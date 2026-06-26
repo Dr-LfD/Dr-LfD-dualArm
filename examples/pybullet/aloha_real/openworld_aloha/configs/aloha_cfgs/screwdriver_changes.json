@@ -1,0 +1,128 @@
+{
+  "objects": {
+    "left_arm": [],
+    "right_arm": [],
+    "screwdriver": [
+      "CanPick"
+    ],
+    "table": []
+  },
+  "initial_graph": [
+    [
+      "screwdriver",
+      "table"
+    ],
+    [
+      "left_arm",
+      "table"
+    ],
+    [
+      "right_arm",
+      "table"
+    ]
+  ],
+  "skills": [
+    {
+      "skill_id": 1,
+      "name": "grasp",
+      "edge_ops": [
+        [
+          [
+            "left_arm",
+            "screwdriver"
+          ],
+          "Add"
+        ],
+        [
+          [
+            "screwdriver",
+            "table"
+          ],
+          "Del"
+        ]
+      ],
+      "effect_detection": {
+        "backend": "contact_predictor",
+        "contact_edge": "left_arm_screwdriver",
+        "threshold": 0.5,
+        "skip_frame": 3,
+        "camera_names": [
+          "cam_wrist"
+        ],
+        "robot_camera_map": {
+          "left_arm": "cam_wrist"
+        },
+        "obs_key_map": {
+          "cam_wrist": "cam_left_wrist"
+        }
+      }
+    },
+    {
+      "skill_id": 2,
+      "name": "bimanual packing",
+      "edge_ops": [
+        [
+          [
+            "right_arm",
+            "screwdriver"
+          ],
+          "Add"
+        ],
+        [
+          [
+            "right_arm",
+            "screwdriver"
+          ],
+          "Del"
+        ],
+        [
+          [
+            "left_arm",
+            "screwdriver"
+          ],
+          "Del"
+        ],
+        [
+          [
+            "screwdriver",
+            "table"
+          ],
+          "Add"
+        ]
+      ],
+      "effect_detection": {
+        "timeout_t": 600,
+        "hand_hand_dist_threshold": 0.2,
+        "hand_hand_dist_comparison": "lt"
+      }
+    }
+  ],
+  "instantiated_streams": [
+    {
+      "name": "sample-grasp-traj_0",
+      "template": "sample-grasp-traj",
+      "skill_index": 0,
+      "skill": "left_arm_grasp_screwdriver",
+      "arm": "left_arm",
+      "object": "screwdriver"
+    },
+    {
+      "name": "sample-biop-keypose_1",
+      "template": "sample-biop-keypose",
+      "skill_index": 1,
+      "skill": "bimanual_0",
+      "arm1": "left_arm",
+      "arm2": "right_arm",
+      "eff_grasps": []
+    },
+    {
+      "name": "test-cfree-bioperation-pose_1",
+      "template": "test-cfree-bioperation-pose",
+      "skill_index": 1,
+      "skill": "bimanual_0",
+      "arm1": "left_arm",
+      "arm2": "right_arm",
+      "eff_grasps": []
+    }
+  ]
+}

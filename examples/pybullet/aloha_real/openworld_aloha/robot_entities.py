@@ -1,10 +1,8 @@
 import os
 
-# from run_estimator import *
-
 from examples.pybullet.utils.pybullet_tools.ikfast.utils import IKFastInfo
 from examples.pybullet.utils.pybullet_tools.utils import link_from_name, joints_from_names, get_joints, get_joint_positions, \
-    get_joint_names, set_joint_positions, get_link_pose
+    get_joint_names, set_joint_positions
 from examples.pybullet.aloha_real.openworld_aloha.entities import Camera, Manipulator, Robot
 
 from examples.pybullet.aloha_real.openworld_aloha.estimation.lis import CAMERA_MATRIX
@@ -16,13 +14,16 @@ from examples.pybullet.aloha_real.scripts.aloha_utils import move_grippers, move
 from scipy.spatial.transform import Rotation
 from examples.pybullet.utils.pybullet_tools.ikfast.ikfast import (
     ikfast_forward_kinematics,
-    get_ik_joints,
 )
 
 FRANKA_PERCEPT_ARM_POSE =  [0.0, -0.744, 0.0, -1.9, 0.0, 1.221, 0.0] #[0, -1.1188, 0, -2.6307, 0, 1.6663,0]
 FRANKA_GRIPPER_POSITION_OPEN = 0
 FRANKA_GRIPPER_POSITION_CLOSE = 200 ## max close: 255
-# from robots.panda.panda_controller import PandaController
+
+# Per-joint motion-planning weights for the robosuite dual-panda (ee_traj_mode / OSC route):
+# damp the wide-range proximal joints so planning doesn't make redundant elbow swings for
+# small EE moves. Only the robosuite franka uses this; other robots keep uniform weights.
+ROBOSUITE_FRANKA_ARM_JOINT_WEIGHTS = (1.5, 1.5, 1.0, 1.0, 0.8, 0.8, 0.8)
 import numpy as np
 import time
 
@@ -49,11 +50,6 @@ ALOHA_INFOS = {
 }
 
 from examples.pybullet.utils.pybullet_tools.ikfast.franka_panda.ik import PANDA_INFO
-
-# DUAL_FRANKA_INFOS = {
-#     "left_arm": PANDA_INFO,
-#     "right_arm": PANDA_INFO,
-# }
 
 from examples.pybullet.utils.pybullet_tools.ikfast.franka_dual.ik import PANDA1_INFO, PANDA2_INFO
 
@@ -92,14 +88,19 @@ class Controller(object):
     def __init__(self, *args, **kwargs):
         pass
 
+    ## return jpose in pybullet
+    @property
+    def joint_positions(self):
+        joints = get_joints(self.robot)
+        joint_positions = get_joint_positions(self.robot, joints)
+        joint_names = get_joint_names(self.robot, joints)
+        return {k: v for k, v in zip(joint_names, joint_positions)}
+
 
 class SimulatedController(Controller):
     def __init__(self, robot, client=None, **kwargs):
         self.client = client
         self.robot = robot
-        
-    # def side_from_arm(self, arm):
-    #     return arm.replace("_arm", "")
 
     def open_gripper(self, arm):  # These are mirrored on the pr2
 
@@ -121,13 +122,6 @@ class SimulatedController(Controller):
 
     def get_current_config(self):
         pass
-
-    @property
-    def joint_positions(self):
-        joints = get_joints(self.robot)
-        joint_positions = get_joint_positions(self.robot, joints)
-        joint_names = get_joint_names(self.robot, joints)
-        return {k: v for k, v in zip(joint_names, joint_positions)}
 
     def command_group(self, group, positions, **kwargs):  # TODO: default timeout
         self.set_group_positions({group: positions})
@@ -171,8 +165,6 @@ class PysicalALOHAController(Controller):
         rospy.Subscriber('/puppet_left/joint_states', JointState, self.l_joint_state_callback)
         rospy.Subscriber('/puppet_right/joint_states', JointState, self.r_joint_state_callback)
 
-        # self.target_arm_single = None
-        
         self.l_joint_qpos = None
         self.r_joint_qpos = None
         while self.l_joint_qpos is None or self.r_joint_qpos is None:
@@ -235,26 +227,12 @@ class PysicalALOHAController(Controller):
         elif group == 'right_gripper':
             return self.r_gripper_pos*np.array([1, -1])
 
-    # def get_side_conf(self, side):
-    #     if side == 'left':
-    #         return self.l_joint_qpos
-    #     else:
-    #         return self.r_joint_qpos
-        
     ## return jpose in pysical robot
     def get_current_config(self):
         left_conf = self.get_group_conf('left_arm')
         right_conf = self.get_group_conf('right_arm')
         cur_conf = np.hstack((left_conf, right_conf))
         return cur_conf
-    
-    ## return jpose in pybullet
-    @property
-    def joint_positions(self):
-        joints = get_joints(self.robot)
-        joint_positions = get_joint_positions(self.robot, joints)
-        joint_names = get_joint_names(self.robot, joints)
-        return {k: v for k, v in zip(joint_names, joint_positions)}
 
     def do_resetting(self):
         all_bots = [self.puppet_bot_left, self.puppet_bot_right]
@@ -274,8 +252,6 @@ class PysicalDualFrankaController(Controller):
     def setup_ros_common(self, env):
         import rospy
         self.env = env
-        # self.target_arm_single = None
-        
         self.get_current_config()
         while self.l_joint_qpos is None or self.r_joint_qpos is None:
             self.get_current_config()
@@ -297,8 +273,6 @@ class PysicalDualFrankaController(Controller):
         self.env.move_arms_grippers(tgt_qpos, move_time=1.0)
 
     def arm_cmd_publish(self, arm, target_arm_single):
-        # bot = self.get_env_bot(arm)
-        # bot.arm.set_joint_positions(target_arm_single, blocking = False)
         from franka_msgs.msg import servoj
 
         target_arm_single_list = list(target_arm_single)
@@ -328,14 +302,6 @@ class PysicalDualFrankaController(Controller):
         self.r_joint_qpos = self.get_side_conf('right')
         cur_conf = np.hstack((self.l_joint_qpos, self.r_joint_qpos))
         return cur_conf
-    
-    ## return jpose in pybullet
-    @property
-    def joint_positions(self):
-        joints = get_joints(self.robot)
-        joint_positions = get_joint_positions(self.robot, joints)
-        joint_names = get_joint_names(self.robot, joints)
-        return {k: v for k, v in zip(joint_names, joint_positions)}
 
     def do_resetting(self):
         tgt_pose_close = (FRANKA_PERCEPT_ARM_POSE + [FRANKA_GRIPPER_POSITION_CLOSE])*2
@@ -346,24 +312,51 @@ class PysicalDualFrankaController(Controller):
 
     
 
-################ SINGLE ARM robot ################
-class SingleArmBase(Robot):
+################ ARM robot base ################
+class ArmRobotBase(Robot):
+    ## identical across every concrete robot below
+    max_depth = 3.0
+    min_z = 0.0
+    # Per-joint motion-planning weights for ee_traj_mode; None -> uniform weighting.
+    # Concrete robots override with a kinematics-specific vector (see PANDA_ARM_JOINT_WEIGHTS).
+    arm_joint_weights = None
+
     def __init__(self, body, lfd_env=None, **kwargs):
         if lfd_env is not None and self.real_execute:
             self.controller.setup_ros_common(lfd_env)
 
-        super(SingleArmBase, self).__init__(body, **kwargs)
+        super(ArmRobotBase, self).__init__(body, **kwargs)
 
         self.limit_dict = {}
         for arm in self.arms:
             mins, maxs = map(np.array, self.get_group_limits(arm))
-            self.limit_dict.update({arm: (np.array(mins), np.array(maxs))})
+            self.limit_dict[arm] = (np.array(mins), np.array(maxs))
 
-    # def arm_from_side(self, side):
-    #     return arm_from_side(side)
+    def _stash_init_args(self, robot_body, ik_method, link_names, client, arms, real_camera, real_execute):
+        self.ik_method = ik_method
+        self.link_names = link_names
+        self.body = robot_body
+        self.client = client
+        self.arms = arms
+        self.real_camera = real_camera
+        self.real_execute = real_execute
 
-    # def side_from_arm(self, arm):
-    #     return side_from_arm(arm)
+    @property
+    def max_gripper_width(self):
+        return 2 * (self.max_finger_pose - self.min_finger_pose)
+
+    def arm_from_side(self, side):
+        return arm_from_side(side)
+
+    def side_from_arm(self, arm):
+        return side_from_arm(arm)
+
+    def get_arm_group(self, arm):
+        """Map schema arm constant (e.g. robot0, robot1) to group name (left_arm, right_arm)."""
+        rbt_to_side = getattr(self, "rbt_ids_to_side", None)
+        if rbt_to_side and arm in rbt_to_side:
+            return f"{rbt_to_side[arm]}_arm"
+        return arm
 
     def arm_conf(self, arm, config):
         assert arm in self.arms
@@ -393,44 +386,23 @@ class SingleArmBase(Robot):
             for group, positions in conf.items():
                 self.set_group_positions(group, positions)
 
-    def post_single_arm_reset(self, **kwargs):
-        if hasattr(self.controller, 'go_to_cfg'):
-            self.controller.go_to_cfg(**kwargs)
-
     def get_link_trans(self, link_name):
         link_id = link_from_name(self.robot, link_name)
         link_pose = self.get_link_pose(link_id)
         link_mat = xyzquat2trans(link_pose)
         return link_mat
-    
-    def get_valid_arm_pose(self, arm_pose, arm_name):
-        if arm_name in self.limit_dict:
-            arm_pose = limit_values(arm_pose[:self.arm_dof], self.limit_dict[arm_name])
-        return arm_pose
 
-    def get_ee_pose(self, arm_pose=None, arm_name=None):
-        if arm_pose is None:
-            current_config = self.controller.get_current_config()
-            arm_pose = current_config[:self.arm_dof]
-        
-        if arm_name is None:
-            arm_name = self.arms[0]  # Default to first arm
-            
-        # This would need to be implemented based on the specific robot's forward kinematics
-        # For now, returning a placeholder
-        return arm_pose
-    
     def set_close_gripper(self, arm):
         return self.set_gripper(arm, is_close=True)
-    
-    def close_open_conf(self):
-        raise NotImplementedError("close_open_conf should be implemented in child class")
-    
+
     def set_open_gripper(self, arm):
         return self.set_gripper(arm, is_close=False)
 
+    def close_open_conf(self):
+        raise NotImplementedError("close_open_conf should be implemented in child class")
+
     def set_gripper(self, arm, is_close):
-        side = self.side_from_arm(arm) 
+        side = self.side_from_arm(arm)
         _, gripper_group, _ = self.manipulators[side]
         close_conf, open_conf = self.close_open_conf()
         if is_close:
@@ -438,31 +410,63 @@ class SingleArmBase(Robot):
         else:
             self.set_group_positions(gripper_group, open_conf)
 
-    def arm_from_side(self, side):
-        return arm_from_side(side)
 
-    def side_from_arm(self, arm):
-        return side_from_arm(arm)
+class PandaGripperMixin(object):
+    """Shared Panda gripper normalization (single + dual)."""
+    max_finger_joint = -1
+    min_finger_joint = 1
+    max_finger_pose = 0.04
+    min_finger_pose = 0.0
 
-    def get_arm_group(self, arm):
-        rbt_to_side = getattr(self, "rbt_ids_to_side", None)
-        if rbt_to_side and arm in rbt_to_side:
-            return f"{rbt_to_side[arm]}_arm"
-        return arm
-    
-class PandaSingleRobot(SingleArmBase):
+    def gripper_pos_unnormalize_fn(self, x):
+        return x * (self.max_finger_pose - self.min_finger_pose) + self.min_finger_pose
+
+    def gripper_pos_normalise_fn(self, x):
+        return (x - self.min_finger_pose) / (self.max_finger_pose - self.min_finger_pose)
+
+    def close_open_conf(self):
+        return [self.min_finger_pose, self.min_finger_pose], [self.max_finger_pose, self.max_finger_pose]
+
+    ## [-1,1] --> [0.0, 0.05]
+    def joint2pos_gripper(self, gripper_jval):
+        tgt_pos = self.gripper_pos_unnormalize_fn(
+            (gripper_jval - self.min_finger_joint) / (self.max_finger_joint - self.min_finger_joint)
+        )
+        return (tgt_pos, tgt_pos)
+
+    def pos2joint_gripper(self, tgt_pos):
+        gripper_jval = self.gripper_pos_normalise_fn(tgt_pos) * (self.max_finger_joint - self.min_finger_joint) + self.min_finger_joint
+        return gripper_jval
+
+
+def build_cameras(robot, body, real_camera, client):
+    if real_camera:
+        return []
+    return [
+        Camera(
+            robot,
+            link=link_from_name(body, CAMERA_FRAME),
+            optical_frame=link_from_name(body, CAMERA_OPTICAL_FRAME),
+            camera_matrix=CAMERA_MATRIX,
+            client=client,
+        )
+    ]
+
+
+################ SINGLE ARM robot ################
+class SingleArmBase(ArmRobotBase):
+    def post_single_arm_reset(self, **kwargs):
+        if hasattr(self.controller, 'go_to_cfg'):
+            self.controller.go_to_cfg(**kwargs)
+
+
+class PandaSingleRobot(PandaGripperMixin, SingleArmBase):
     def __init__(self, robot_body, ik_method = 'ikfast', link_names={}, client=None, real_camera=False, real_execute=False, \
                  arms = ["left_arm"],  **kwargs):
-        self.ik_method = ik_method
-        self.link_names = link_names
-        self.body = robot_body
-        self.client = client
-        self.arms = arms
-        self.real_camera = real_camera
-        self.real_execute = real_execute
+        self._stash_init_args(robot_body, ik_method, link_names, client, arms, real_camera, real_execute)
         ## reverse of dual franka
         Panda_TOOL_FRAMES = {
-            "left_arm": "tool_link", 
+            "left_arm": "tool_link",
         }
 
         Panda_manipulators = {
@@ -501,22 +505,11 @@ class PandaSingleRobot(SingleArmBase):
             **kwargs
         )
         self.arm_dof = 7
-        self.max_depth = 3.0
-        self.min_z = 0.0
         self.BASE_LINK = "panda_link0"
-        self.max_finger_joint = -1
-        self.min_finger_joint = 1
-        self.max_finger_pose = 0.04
-        self.min_finger_pose = 0.0
-        self.max_gripper_width = 2*(self.max_finger_pose-self.min_finger_pose)
-        self.gripper_pos_unnormalize_fn = lambda x: x* (self.max_finger_pose - self.min_finger_pose) + self.min_finger_pose
-        self.gripper_pos_normalise_fn = lambda x: (x - self.min_finger_pose) / (self.max_finger_pose - self.min_finger_pose)
         self.initial_arm_pose = FRANKA_PERCEPT_ARM_POSE
 
     def revise_initial_pose(self, initial_jposes):
         self.initial_arm_pose = list(initial_jposes['left_arm'])
-
-
 
     def get_default_conf(self):
         close_conf, open_conf = self.close_open_conf()
@@ -527,22 +520,6 @@ class PandaSingleRobot(SingleArmBase):
         conf['left_robot'] = conf['left_arm'] + conf['left_gripper']
         return conf
 
-    ## if right finger is mimicking left finger, sign will be opposite
-    def close_open_conf(self):
-        return [self.min_finger_pose, self.min_finger_pose], [self.max_finger_pose, self.max_finger_pose]
-    
-    ## [-1,1] --> [0.0, 0.05]
-    def joint2pos_gripper(self, gripper_jval):
-        tgt_pos = self.gripper_pos_unnormalize_fn((gripper_jval - self.min_finger_joint) / (self.max_finger_joint - self.min_finger_joint) )  
-        # tgt_pos = self.max_finger_pose * gripper_jval
-        return (tgt_pos, tgt_pos)
-    
-    def pos2joint_gripper(self, tgt_pos):
-        gripper_jval = self.gripper_pos_normalise_fn(tgt_pos) * (self.max_finger_joint - self.min_finger_joint) + self.min_finger_joint
-
-        return gripper_jval
-    
-    
     @property
     def rbt_ids_to_side(self):
         idx_to_side = {
@@ -558,69 +535,10 @@ class PandaSingleRobot(SingleArmBase):
         return side_to_idx
 ################# DUAL_ARM_ROBOT ################
 
-class DualArmBase(Robot):
-    def __init__(self, body, lfd_env = None, **kwargs):
-        if lfd_env is not None and self.real_execute:
-            self.controller.setup_ros_common(lfd_env)
-
-
-        super(DualArmBase, self).__init__(body, **kwargs)
-
-        self.limit_dict = {}
-        for arm in ['left_arm', 'right_arm']:
-            mins, maxs = map(np.array, self.get_group_limits(arm))
-            self.limit_dict.update({arm: (np.array(mins), np.array(maxs))})
-
-
-    def arm_from_side(self, side):
-        return arm_from_side(side)
-
-    def side_from_arm(self, arm):
-        return side_from_arm(arm)
-
-    def get_arm_group(self, arm):
-        rbt_to_side = getattr(self, "rbt_ids_to_side", None)
-        if rbt_to_side and arm in rbt_to_side:
-            return f"{rbt_to_side[arm]}_arm"
-        return arm
-
-    def arm_conf(self, arm, config):
-        assert arm in self.arms
-        return config[arm]
-
-    @property
-    def groups(self):
-        return self.joint_groups
-
-    @property
-    def default_mobile_base_arm(self):
-        return self.get_default_conf()
-
-    @property
-    def default_fixed_base_arm(self):
-        return self.get_default_conf()
-
-    @property
-    def base_link(self):
-        return link_from_name(self.robot, self.BASE_LINK)
-
-    def reset(self, reset_pybullet = True, **kwargs):
-        if self.real_execute and not reset_pybullet:
-            self.controller.do_resetting()
-        else:
-            conf = self.get_default_conf()
-            for group, positions in conf.items():
-                self.set_group_positions(group, positions)
-
+class DualArmBase(ArmRobotBase):
     def post_bimanual_reset(self, **kwargs):
         self.controller.go_to_cfg(**kwargs)
 
-    def get_link_trans(self, link_name):
-        link_id = link_from_name(self.robot, link_name)
-        link_pose =  self.get_link_pose(link_id)
-        link_mat = xyzquat2trans(link_pose)
-        return link_mat
-    
     def get_valid_dualpose(self, dual_jpose, reverse_arms = False, full_jpose = False):
         left_jpose_raw, right_jpose_raw = dual_jpose
         left_jpose = limit_values(left_jpose_raw[:self.arm_dof], self.limit_dict['left_arm'])
@@ -677,14 +595,7 @@ class DualArmBase(Robot):
 class ALOHARobot(DualArmBase):
     def __init__(self, robot_body, ik_method = 'ikfast', link_names={}, client=None, real_camera=False, real_execute=False, \
                  arms = ["left_arm", "right_arm"],  **kwargs):
-
-        self.ik_method = ik_method
-        self.link_names = link_names
-        self.body = robot_body
-        self.client = client
-        self.arms = arms
-        self.real_camera = real_camera
-        self.real_execute = real_execute
+        self._stash_init_args(robot_body, ik_method, link_names, client, arms, real_camera, real_execute)
 
         ALOHA_GROUPS = {
             "base": [],
@@ -710,20 +621,7 @@ class ALOHARobot(DualArmBase):
         }
         aloha_ik_infos = {side_from_arm(arm): ALOHA_INFOS[arm] for arm in self.arms}
 
-        if not real_camera:
-            cameras = [
-                Camera(
-                    self,
-                    link=link_from_name(self.body, CAMERA_FRAME),
-                    optical_frame=link_from_name(
-                        self.body, CAMERA_OPTICAL_FRAME
-                    ),
-                    camera_matrix=CAMERA_MATRIX,
-                    client=client,
-                )
-            ]
-        else:
-            cameras = []
+        cameras = build_cameras(self, self.body, real_camera, client)
 
         if not self.real_execute:
             self.controller = SimulatedController(self.robot, client=self.client)
@@ -742,12 +640,9 @@ class ALOHARobot(DualArmBase):
             **kwargs
         )
         self.arm_dof = 6
-        self.max_depth = 3.0
-        self.min_z = 0.0
         self.BASE_LINK = "base"
-        self.max_finger_pose = PUPPET_GRIPPER_POSITION_OPEN 
+        self.max_finger_pose = PUPPET_GRIPPER_POSITION_OPEN
         self.min_finger_pose = PUPPET_GRIPPER_POSITION_CLOSE
-        self.max_gripper_width = 2*(self.max_finger_pose-self.min_finger_pose)
         self.percept_arm_pose = ALOHA_PERCEPT_ARM_POSE
 
     @property
@@ -814,13 +709,7 @@ class ALOHARobot(DualArmBase):
 class DUALfrankaRobot(DualArmBase):
     def __init__(self, robot_body, ik_method = 'pybullet', link_names={}, client=None, real_camera=False, real_execute=False, \
                  arms = ["left_arm", "right_arm"],  **kwargs):
-        self.ik_method = ik_method
-        self.link_names = link_names
-        self.body = robot_body
-        self.client = client
-        self.arms = arms
-        self.real_camera = real_camera
-        self.real_execute = real_execute
+        self._stash_init_args(robot_body, ik_method, link_names, client, arms, real_camera, real_execute)
 
         DUALfranka_TOOL_FRAMES = {
             "left_arm": "panda2_ee_link", 
@@ -845,22 +734,7 @@ class DUALfrankaRobot(DualArmBase):
             "right_gripper":  ["panda1_hande_left_finger_joint", "panda1_hande_right_finger_joint"],
         }
 
-
-
-        if not real_camera:
-            cameras = [
-                Camera(
-                    self,
-                    link=link_from_name(self.body, CAMERA_FRAME),
-                    optical_frame=link_from_name(
-                        self.body, CAMERA_OPTICAL_FRAME
-                    ),
-                    camera_matrix=CAMERA_MATRIX,
-                    client=client,
-                )
-            ]
-        else:
-            cameras = []
+        cameras = build_cameras(self, self.body, real_camera, client)
 
         if not self.real_execute:
             self.controller = SimulatedController(self.robot, client=self.client)
@@ -879,14 +753,10 @@ class DUALfrankaRobot(DualArmBase):
             **kwargs
         )
         self.arm_dof = 7
-        self.max_depth = 3.0
-        self.min_z = 0.0
         self.BASE_LINK = "world"
         self.max_finger_pose = 0.025
         self.min_finger_pose = 0.0
-        self.max_gripper_width = 2*(self.max_finger_pose-self.min_finger_pose)
         self.percept_arm_pose = FRANKA_PERCEPT_ARM_POSE
- 
 
     def get_default_conf(self):
         close_conf, open_conf = self.close_open_conf()
@@ -904,18 +774,10 @@ class DUALfrankaRobot(DualArmBase):
 
 
 
-
-
-class PandaDualRobot(DualArmBase):
+class PandaDualRobot(PandaGripperMixin, DualArmBase):
     def __init__(self, robot_body, ik_method = 'ikfast', link_names={}, client=None, real_camera=False, real_execute=False, \
                  arms = ["left_arm", "right_arm"],  **kwargs):
-        self.ik_method = ik_method
-        self.link_names = link_names
-        self.body = robot_body
-        self.client = client
-        self.arms = arms
-        self.real_camera = real_camera
-        self.real_execute = real_execute
+        self._stash_init_args(robot_body, ik_method, link_names, client, arms, real_camera, real_execute)
         ## reverse of dual franka
         PandaDual_TOOL_FRAMES = {
             "left_arm": "panda2_ee_link", 
@@ -942,20 +804,6 @@ class PandaDualRobot(DualArmBase):
         PandaDual_GROUPS["left_robot"] = PandaDual_GROUPS["left_arm"] + PandaDual_GROUPS["left_gripper"]
         PandaDual_GROUPS["right_robot"] = PandaDual_GROUPS["right_arm"] + PandaDual_GROUPS["right_gripper"]
 
-
-        # if not real_camera:
-        #     cameras = [
-        #         Camera(
-        #             self,
-        #             link=link_from_name(self.body, CAMERA_FRAME),
-        #             optical_frame=link_from_name(
-        #                 self.body, CAMERA_OPTICAL_FRAME
-        #             ),
-        #             camera_matrix=CAMERA_MATRIX,
-        #             client=client,
-        #         )
-        #     ]
-        # else:
         cameras = []
 
         if not self.real_execute:
@@ -975,23 +823,14 @@ class PandaDualRobot(DualArmBase):
             **kwargs
         )
         self.arm_dof = 7
-        self.max_depth = 3.0
-        self.min_z = 0.0
+        self.arm_joint_weights = ROBOSUITE_FRANKA_ARM_JOINT_WEIGHTS
         self.BASE_LINK = "world"
-        self.max_finger_joint = -1
-        self.min_finger_joint = 1
-        self.max_finger_pose = 0.04
-        self.min_finger_pose = 0.0
-        self.max_gripper_width = 2*(self.max_finger_pose-self.min_finger_pose)
-        self.gripper_pos_unnormalize_fn = lambda x: x* (self.max_finger_pose - self.min_finger_pose) + self.min_finger_pose
-        self.gripper_pos_normalise_fn = lambda x: (x - self.min_finger_pose) / (self.max_finger_pose - self.min_finger_pose)
         self.initial_left_arm_pose = FRANKA_PERCEPT_ARM_POSE
         self.initial_right_arm_pose = FRANKA_PERCEPT_ARM_POSE
 
     def revise_initial_pose(self, initial_jposes):
         self.initial_left_arm_pose = list(initial_jposes['left_arm'])
         self.initial_right_arm_pose = list(initial_jposes['right_arm'])
-
 
     def get_default_conf(self):
         close_conf, open_conf = self.close_open_conf()
@@ -1005,28 +844,6 @@ class PandaDualRobot(DualArmBase):
         conf['right_robot'] = conf['right_arm'] + conf['right_gripper']
         return conf
 
-    ## if right finger is mimicking left finger, sign will be opposite
-    def close_open_conf(self):
-        return [self.min_finger_pose, self.min_finger_pose], [self.max_finger_pose, self.max_finger_pose]
-    
-    ## [-1,1] --> [0.0, 0.05]
-    def joint2pos_gripper(self, gripper_jval):
-        tgt_pos = self.gripper_pos_unnormalize_fn((gripper_jval - self.min_finger_joint) / (self.max_finger_joint - self.min_finger_joint) )  
-        # tgt_pos = self.max_finger_pose * gripper_jval
-        return (tgt_pos, tgt_pos)
-    
-    def pos2joint_gripper(self, tgt_pos):
-        gripper_jval = self.gripper_pos_normalise_fn(tgt_pos) * (self.max_finger_joint - self.min_finger_joint) + self.min_finger_joint
-        # gripper_jval = tgt_pos / self.max_finger_pose
-        return gripper_jval
-    
-    # def hand_name_map(self, node_name):
-    #     hand_name_dict = {
-    #         'robot0': 'left',
-    #         'robot1': 'right',
-    #     }
-    #     return hand_name_dict[node_name]
-
     @property
     def rbt_ids_to_side(self):
         idx_to_side = {
@@ -1034,7 +851,7 @@ class PandaDualRobot(DualArmBase):
             'robot1': 'right',
         }
         return idx_to_side
-    
+
     @property
     def side_to_rbt_ids(self):
         side_to_idx = {
@@ -1043,32 +860,16 @@ class PandaDualRobot(DualArmBase):
         }
         return side_to_idx
 
-    def get_arm_group(self, arm):
-        """Map schema arm constant (e.g. robot0, robot1) to group name (left_arm, right_arm)."""
-        rbt_to_side = getattr(self, "rbt_ids_to_side", None)
-        if rbt_to_side and arm in rbt_to_side:
-            return f"{rbt_to_side[arm]}_arm"
-        return arm
-
-
-    
     def compute_fk(self, qpos_dual):
         qpos_dim_half = int(0.5*len(qpos_dual))
         qpos = {'left': qpos_dual[:self.arm_dof], 'right': qpos_dual[qpos_dim_half:qpos_dim_half+self.arm_dof]}
 
-
         ee_pos = {}
         for side in ['left', 'right']:
             world_from_tool = ikfast_forward_kinematics(self.robot, self.ik_info[side],self.get_tool_link(side), conf =  qpos[side])
-
-            # tool_link = self.get_tool_link(side)
-            # ik_joints = get_ik_joints(self.robot, self.ik_info[side], tool_link)
-            # conf = qpos[side]
-            # set_joint_positions(self.robot, ik_joints, conf)
-            # world_from_tool = get_link_pose(self.robot, tool_link)
             rotvec = Rotation.from_quat(world_from_tool[1]).as_rotvec()
             ee_pos[side] = np.concatenate((world_from_tool[0], rotvec))
-            
+
         eef_14d = np.concatenate((\
             ee_pos['left'], \
             np.array([qpos_dual[self.arm_dof]]), \

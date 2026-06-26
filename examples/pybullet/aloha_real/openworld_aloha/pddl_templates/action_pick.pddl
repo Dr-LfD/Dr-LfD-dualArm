@@ -3,7 +3,7 @@
     :precondition (and (CanPick ?o)
                        (not (Supporting ?o))
                        (Pick ?a ?o ?p ?g ?aq ?at)
-                       (AtPose ?o ?p)
+                       (AtPose ?o ?p){{REACHABLE_PRE}}
                        (ArmEmpty ?a)
                        (AtConf ?a ?aq)
                        (not (UnsafePregrasp ?a ?o ?p ?g))

@@ -69,13 +69,97 @@ def categorize_skill(skill_name):
     return 'nonprehensile'  ## should output a traj only
 
 
+def update_alohaMultiSkill_wrapper(para, skill_names, skillwise_sgs):
+    """Load one Equibot policy wrapper per skill for the real ALOHA robot (trajectory mode).
+
+    Used by the real-robot plugin. The heavy ``equibot``/``hydra`` deps are imported lazily so
+    importing ``network_loader`` stays free of those packages.
+    """
+    primitive_learning_path = para['primitive_learning_path']
+    sys.path.append(primitive_learning_path)
+    from equibot.policies.aloha_wrapper import pddl_wrapper
+    from hydra import compose, initialize
+    import hydra
+    hydra.core.global_hydra.GlobalHydra.instance().clear()
+
+    equivSkill_info_dict = {}
+    task_name = para['task_name']
+    for prefix_key in skill_names:
+        equivSkill_info_dict[prefix_key] = {}
+        equivSkill_info_dict[prefix_key]['task_name'] = task_name
+
+        cfg_name = f'diffGen_{prefix_key}'
+        with initialize(version_base=None, config_path="configs", job_name="test_app"):
+            cfg = compose(config_name=cfg_name,
+                          overrides=["prefix=" + prefix_key, "mode=inference", "use_wandb=false"])
+
+        agent_wrapper = pddl_wrapper(dataset_path=None, cfg=cfg)
+        equivSkill_info_dict[prefix_key]['tamp_wrapper'] = agent_wrapper
+
+        skillwise_sgs[prefix_key]['skill_type'] = para[prefix_key]['skill_type']
+        equivSkill_info_dict[prefix_key]['skillwise_sgs'] = skillwise_sgs
+        equivSkill_info_dict[prefix_key]['skill_names'] = para[prefix_key]['skill_names']
+
+    return equivSkill_info_dict
+
+
+def update_alohaMultiEquivSkill_wrapper(para, env_names, skillwise_sgs):
+    """Load Equibot unimanual + bimanual (biop) policy wrappers per env for the real ALOHA robot.
+
+    Companion of :func:`update_alohaMultiSkill_wrapper`; resolves checkpoints per env and records
+    the object-centric mode ('traj' vs 'grasp') inferred from each wrapper's dataset type.
+    """
+    primitive_learning_path = para['primitive_learning_path']
+    sys.path.append(primitive_learning_path)
+    from equibot.policies.aloha_wrapper import pddl_wrapper
+    from hydra import compose, initialize
+    import hydra
+    hydra.core.global_hydra.GlobalHydra.instance().clear()
+
+    equivSkill_info_dict = {}
+    task_name = para['task_name']
+    for prefix_key in env_names:
+        equivSkill_info_dict[prefix_key] = {}
+        equivSkill_info_dict[prefix_key]['task_name'] = task_name
+        equivSkill_info_dict[prefix_key]['learned_grasp_traj_resolution_deg'] = para[prefix_key].get(
+            'learned_grasp_traj_resolution_deg', 2,
+        )
+
+        # unimanual ckpt (and biop kp) — fall back to a hydra config when no ckpt is given
+        ckpt_path = para[prefix_key].get('equi_ckpt_name', None)
+        biop_ckpt_path = para[prefix_key].get('biop_ckpt_name', None)
+
+        if ckpt_path is None:
+            equi_config_name = f'diffGen_{prefix_key}'
+            with initialize(version_base=None, config_path="configs", job_name=equi_config_name):
+                cfg = compose(config_name=equi_config_name,
+                              overrides=[f"prefix={prefix_key}", "mode=inference", "use_wandb=false"])
+            agent_wrapper = pddl_wrapper(dataset_path=None, cfg=cfg)
+        else:
+            agent_wrapper = pddl_wrapper(dataset_path=None, ckpt_path=ckpt_path)
+        equivSkill_info_dict[prefix_key]['tamp_wrapper'] = agent_wrapper
+
+        if biop_ckpt_path is not None:
+            agent_biop_wrapper = pddl_wrapper(dataset_path=None, ckpt_path=biop_ckpt_path)
+            equivSkill_info_dict[prefix_key]['biop_wrapper'] = agent_biop_wrapper
+
+        equivSkill_info_dict[prefix_key]['skillwise_sgs'] = skillwise_sgs[prefix_key]
+        equivSkill_info_dict[prefix_key]['skill_names'] = list(skillwise_sgs[prefix_key].keys())
+
+        dataset_type = equivSkill_info_dict[prefix_key]['tamp_wrapper'].cfg.data.dataset.dataset_type
+        obj_centric_mode = 'traj' if 'traj' in dataset_type else 'grasp'
+        equivSkill_info_dict[prefix_key]['obj_centric_mode'] = obj_centric_mode
+
+    return equivSkill_info_dict
+
+
 def update_equivSkill_wrapper(sg_params, para, get_sgs_from_hdf5_fn = None):
     # if skill_name is not None:
     #     sg_params = para[env_name]
     # else:
     #     sg_params = para['sg_params']
-    diffgen_data_path = para['diffgen_data_path']
-    sys.path.append(diffgen_data_path) 
+    primitive_learning_path = para['primitive_learning_path']
+    sys.path.append(primitive_learning_path) 
     from equibot.policies.aloha_wrapper import pddl_wrapper
     from hydra import compose, initialize
     import hydra
@@ -101,7 +185,7 @@ def update_equivSkill_wrapper(sg_params, para, get_sgs_from_hdf5_fn = None):
 
     shape_meta = None
     for prefix_key in prefix_keys: 
-        dataset_path = os.path.join(diffgen_data_path, 'data', prefix_key)
+        dataset_path = os.path.join(primitive_learning_path, 'data', prefix_key)
  
         equivSkill_info_dict[prefix_key] = {}
         equivSkill_info_dict[prefix_key]['task_name'] = task_name
@@ -131,6 +215,14 @@ def update_equivSkill_wrapper(sg_params, para, get_sgs_from_hdf5_fn = None):
             skillwise_sgs = get_sgs_from_hdf5_fn(hdf5_path)
         else:
             skillwise_sgs = agent_wrapper.agent.get_skillwise_sgs_from_statistics(task_name)
+            # The equi (grasp) checkpoint may not carry the bimanual keypose scene
+            # graph; the biop checkpoint does. Each checkpoint owns its own skills'
+            # graphs, so fill any skill the equi checkpoint lacks from the biop
+            # wrapper (equi wins on overlap, matching the loaded grasp policy).
+            if biop_ckpt_path is not None:
+                biop_sgs = agent_biop_wrapper.agent.get_skillwise_sgs_from_statistics(task_name)
+                for biop_skill_name, biop_sg in biop_sgs.items():
+                    skillwise_sgs.setdefault(biop_skill_name, biop_sg)
             skill_names = list(skillwise_sgs.keys())
 
         for skill_name in skill_names:

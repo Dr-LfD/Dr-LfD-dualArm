@@ -1,20 +1,9 @@
-"""
-BuildActionSchema: Generates PDDL domain and stream files from a contact-change config.
+"""BuildActionSchema: generate PDDL domain and stream files from a contact-change config.
 
-Implements Algorithm 2 (BuildActionSchema) from the DR-LfD paper (sec_V_A_new.tex).
-  Input:  A JSON config with initial_graph and ModeChangeDetection (skill sequence).
-  Output: A PDDL domain file and a PDDL stream file compatible with PDDLStream.
-
-Skill classification follows the stream taxonomy from Table 1 (sec_IV_D_new.tex):
-  LearnedAttach      : primitive with (hand,obj) Add    -> learnedPick  + sample-grasp-traj
-  LearnedDetach      : primitive with (hand,obj) Del    -> learnedPlace + sample-place-traj
-  LearnedUniKeyPose  : unimanual visuomotor policy      -> (reserved for future use)
-  LearnedBiKeyPose   : bimanual visuomotor policy       -> BiOperation  + sample-biop-keypose
-
-Handoff is a specific bimanual policy skill (LearnedBiKeyPose), not a separate category.
-
-Planned actions (Transit, Transfer, etc.) and their streams are human-written templates
-loaded from pddl_templates/ and always included in the output.
+Reads a JSON config (initial_graph + per-skill edge_ops) and emits a PDDL domain and
+stream file. Learned skills are classified into the stream taxonomy (Attach/Detach ->
+pick/place, BiKeyPose -> BiOperation); planned actions (Transit, Transfer, ...) come from
+the human-written templates in pddl_templates/.
 """
 
 import json
@@ -22,6 +11,8 @@ import ast
 import os
 import argparse
 import re
+from dataclasses import dataclass, field
+
 import networkx as nx
 
 from examples.pybullet.aloha_real.openworld_aloha.skill_naming import (
@@ -48,6 +39,38 @@ def _fill_template(template_content, replacements):
     for k, v in replacements.items():
         out = out.replace("{{" + k + "}}", str(v))
     return out
+
+
+# Optional reachability + MDF policy-safety constraints, emitted only when
+# enable_constraints is True (per-task `use_constraints` flag); otherwise the
+# {{REACHABLE_PRE}} placeholders fill to "".
+
+# Inline precondition fragment per action template (exact indentation/varnames preserved).
+_REACHABLE_PRE = {
+    "pick":               "\n                       (Reachable ?a ?o ?p)",
+    "pick_coarse":        "\n                       (Reachable ?a ?o ?p)",
+    "place":              "\n                       (Reachable ?a ?o ?p)",
+    "place_coarse":       "\n                       (Reachable ?a ?o ?p)",
+    "learned_pick":       "\n                        (Reachable ?arm ?obj ?p)",
+    "learned_pick_coarse":"\n                      (Reachable ?arm ?obj ?p)",
+}
+
+_REACHABLE_STREAM_BLOCK = """  (:stream test-reachable
+    :inputs (?a ?o ?p )
+    :domain (and (Arm ?a) (Pose ?o ?p) (Movable ?o))
+    :certified (Reachable ?a ?o ?p )
+  )"""
+
+
+def _reachable_pre(key, enable_constraints):
+    """Return the inline (Reachable ...) precondition for an action template, or "" when off."""
+    return _REACHABLE_PRE[key] if enable_constraints else ""
+
+
+def _load_reachable_action_template(template_name, key, enable_constraints):
+    """Load a pick/place action template and fill its {{REACHABLE_PRE}} placeholder."""
+    return _fill_template(_load_template(template_name),
+                          {"REACHABLE_PRE": _reachable_pre(key, enable_constraints)})
 
 
 # ============================================================
@@ -84,45 +107,49 @@ def apply_schema_object_mapping(text, object_mapping):
     return text
 
 
-def parse_config(config_path, object_mapping=None):
-    """
-    Parse a config JSON, handling format inconsistencies across configs.
+_EDGE_OP_TO_INTERNAL = {"Add": "add", "Del": "remove"}
 
-    Returns
-    -------
-    initial_graph : list of [parent, child] edges
-    skills : list of dicts with keys: description, contact_changes, and optionally skill_type
+
+def parse_config(config_path, object_mapping=None):
+    """Parse a skill-schema config JSON into (initial_graph, skills, objects_dict).
+
+    The ``edge_ops`` ``Add``/``Del`` verbs are mapped to the internal ``add``/``remove``
+    ``contact_changes`` representation; per-skill extras (``effect_detection``,
+    ``timestamps``, ``skill_type``) are carried through verbatim.
     """
     with open(config_path, "r") as f:
         data = json.loads(apply_schema_object_mapping(f.read(), object_mapping))
 
-    if "objects" not in data:
-        raise ValueError(f"Missing required 'objects' key in config: {config_path}")
+    for required in ("objects", "skills"):
+        if required not in data:
+            raise ValueError(f"Missing required {required!r} key in config: {config_path}")
     objects_dict = data["objects"]
 
     initial_graph = _parse_json_or_string(data["initial_graph"])
 
     skills = []
-    for entry in data["ModeChangeDetection"]:
-        desc = entry["description"]
-        if "contact_changes" in entry:
-            changes = _parse_json_or_string(entry["contact_changes"])
-        elif "contact_change" in entry:
-            change = _parse_json_or_string(entry["contact_change"])
-            changes = [change]
-        else:
-            raise ValueError(f"No contact_changes or contact_change in skill: {entry}")
-
-        normalized = []
-        for c in changes:
-            edge, op = c
+    for entry in data["skills"]:
+        for required in ("name", "edge_ops"):
+            if required not in entry:
+                raise ValueError(
+                    f"Skill entry missing required {required!r} key in {config_path}: {entry}"
+                )
+        edge_ops = _parse_json_or_string(entry["edge_ops"])
+        contact_changes = []
+        for edge, op in edge_ops:
+            if op not in _EDGE_OP_TO_INTERNAL:
+                raise ValueError(
+                    f"Unknown edge op {op!r} in skill {entry.get('name')!r} of "
+                    f"{config_path}; expected one of {sorted(_EDGE_OP_TO_INTERNAL)}."
+                )
             if isinstance(edge, str):
                 edge = ast.literal_eval(edge)
-            normalized.append([list(edge), op])
+            contact_changes.append([list(edge), _EDGE_OP_TO_INTERNAL[op]])
 
-        skill_entry = {"description": desc, "contact_changes": normalized}
-        if "skill_type" in entry:
-            skill_entry["skill_type"] = entry["skill_type"]
+        skill_entry = {"description": entry["name"], "contact_changes": contact_changes}
+        for key in ("effect_detection", "timestamps", "skill_type"):
+            if key in entry:
+                skill_entry[key] = entry[key]
         skills.append(skill_entry)
 
     return initial_graph, skills, objects_dict
@@ -275,6 +302,128 @@ def Derived(G_pre, involved_hands, obj_types):
     return free_arms
 
 
+def InvolvedArms(changes, hands, current_graph):
+    """``H_i`` -- the arms that skill ``a_i`` engages.
+
+    Steps through the skill's contact changes; at each intermediate graph (with
+    surfaces removed) any connected component holding >=2 hands marks those hands
+    as jointly involved -- i.e. a bimanual operation.
+    """
+    involved = set()
+    G = current_graph.copy()
+    for edge, op in changes:
+        u, v = edge
+        if op == "add":
+            G.add_edge(u, v)
+        elif op == "remove" and G.has_edge(u, v):
+            G.remove_edge(u, v)
+
+        G_no_surface = G.copy()
+        G_no_surface.remove_nodes_from(
+            [n for n in G_no_surface.nodes() if n in SURFACE_NAMES]
+        )
+        G_undirected = G_no_surface.to_undirected()
+        if len(G_undirected) > 0:
+            for comp_nodes in nx.connected_components(G_undirected):
+                comp_hands = hands.intersection(comp_nodes)
+                if len(comp_hands) >= 2:
+                    involved.update(comp_hands)
+    return involved
+
+
+@dataclass
+class _SchemaVarContext:
+    """Resolvers from schema entity names to a single action's PDDL variables."""
+    arm: object       # hand name -> "?a1"/"?a2"
+    ovar: object      # object/surface name -> "?oN"
+    gvar: object      # (hand, obj) -> pre-existing grasp var "?gN"
+    grefresh: object  # (hand, obj) -> refreshed grasp var "?gN"
+    pvar: object      # (obj, surf) -> pose var "?pN"
+
+
+def EdgeOps2Predicates(category, a, b, ctx):
+    """Map one edge operation to its PDDL atom(s).
+
+    ``category`` names the contact transition; ``a``/``b`` are its endpoints and
+    ``ctx`` resolves schema names to this action's PDDL variables.
+    """
+    arm, ovar = ctx.arm, ctx.ovar
+    if category == "grasp_pre":            # arm a holds obj b before the action
+        return [f"(AtGrasp {arm(a)} {ovar(b)} {ctx.gvar(a, b)})"]
+    if category == "surface_pre":          # obj a rests on surface b before
+        return [f"(On {ovar(a)} {ovar(b)})", f"(AtPose {ovar(a)} {ctx.pvar(a, b)})"]
+    if category == "grasp_del":            # arm a releases obj b
+        return [f"(not (AtGrasp {arm(a)} {ovar(b)} {ctx.gvar(a, b)}))",
+                f"(not (ArmHolding {arm(a)} {ovar(b)}))",
+                f"(ArmEmpty {arm(a)})"]
+    if category == "grasp_add":            # arm a grasps obj b
+        return [f"(AtGrasp {arm(a)} {ovar(b)} {ctx.gvar(a, b)})",
+                f"(ArmHolding {arm(a)} {ovar(b)})",
+                f"(not (ArmEmpty {arm(a)}))"]
+    if category == "grasp_refresh":        # stale grasp swapped for fresh one
+        return [f"(not (AtGrasp {arm(a)} {ovar(b)} {ctx.gvar(a, b)}))",
+                f"(AtGrasp {arm(a)} {ovar(b)} {ctx.grefresh(a, b)})"]
+    if category == "holding_del":          # obj a no longer held by any hand
+        return [f"(not (Holding {ovar(a)}))"]
+    if category == "holding_add":          # obj a now held by some hand
+        return [f"(Holding {ovar(a)})"]
+    if category == "surface_del":          # obj a lifted off surface b
+        return [f"(not (AtPose {ovar(a)} {ctx.pvar(a, b)}))"]
+    if category == "surface_add":          # obj a placed on surface b
+        return [f"(AtPose {ovar(a)} {ctx.pvar(a, b)})"]
+    if category == "container_add":        # obj a inserted into container b
+        return [f"(In {ovar(a)} {ovar(b)})"]
+    raise ValueError(f"Unknown EdgeOps2Predicates category: {category!r}")
+
+
+def Bound(arm_obj_edges, ctx, *, refresh=False):
+    """σ.pre ∧ Bound(σ.pre, F_a.certified) -- bind the learned stream's
+    grasp outputs (ImitateGrasp, certified by sample-biop-keypose) into the
+    precondition so the planner is forced to call the stream to produce them.
+    """
+    resolve = ctx.grefresh if refresh else ctx.gvar
+    return [
+        f"(ImitateGrasp ?sk {ctx.arm(h)} {ctx.ovar(o)} {resolve(h, o)})"
+        for h, o in arm_obj_edges
+    ]
+
+
+def SortedArguments(arm_vars, conf_vars, obj_vars, grasp_vars,
+                    refresh_grasp_vars, pose_vars, geom_var):
+    """σ.args -- collect every schema variable in a deterministic
+    order (arms/skill, configs, objects, grasps, refreshed grasps, poses, geom)."""
+    params = list(arm_vars) + list(conf_vars)
+    params += list(obj_vars.values())
+    params += list(grasp_vars.values())
+    params += list(refresh_grasp_vars.values())
+    params += list(pose_vars.values())
+    params.append(geom_var)
+    return params
+
+
+def Applied(skill_var="?sk"):
+    """σ.eff ∧ Applied(a_i), realized as the DoneSkill marker."""
+    return f"(DoneSkill {skill_var})"
+
+
+@dataclass
+class ActionSchema:
+    """Learned-skill schema σ = (args, pre, eff), rendered to PDDL."""
+    idx: int
+    params: list = field(default_factory=list)   # σ.args
+    pre: list = field(default_factory=list)
+    eff: list = field(default_factory=list)
+    template: str = "action_bioperation_grounded_dynamic.pddl"
+
+    def render(self):
+        return _fill_template(_load_template(self.template), {
+            "ACTION_IDX": self.idx,
+            "PARAMS": " ".join(self.params),
+            "PRECONDITIONS": "\n      ".join(self.pre),
+            "EFFECTS": "\n      ".join(self.eff),
+        })
+
+
 def _is_primitive(skill):
     """
     Determine whether a skill is an object-centric primitive or a visuomotor policy.
@@ -286,7 +435,7 @@ def _is_primitive(skill):
 
 
 # ============================================================
-#  3. MatchStreams  (sec_IV_D_new.tex Table 1 + line 50)
+#  3. MatchStreams
 # ============================================================
 
 LEARNED_ATTACH = "LearnedAttach"
@@ -323,14 +472,11 @@ def _has_downstream_detach(arm, obj, skill_index, classified_skills):
 
 
 def MatchStreams(skill, obj_types, current_graph):
-    """
-    Algo 2, Line 9: assign network-integrated stream function(s) to a skill
-    according to the hierarchy in sec_IV_D_new.tex line 50:
+    """Assign network-integrated stream function(s) to a skill.
 
-      1. If primitive: LearnedAttach (hand-obj Add) or LearnedDetach (hand-obj Del)
-      2. If policy: LearnedUniKeyPose (1 arm) or LearnedBiKeyPose (2 arms)
-
-    Returns (matched_streams: list[str], metadata: dict).
+    Primitives match LearnedAttach/LearnedDetach (hand-obj Add/Del); policies match
+    LearnedUniKeyPose (1 arm) or LearnedBiKeyPose (2 arms). Returns
+    (matched_streams, metadata).
     """
     changes = skill["contact_changes"]
     hands = {e for e, t in obj_types.items() if t == "hand"}
@@ -359,11 +505,10 @@ def MatchStreams(skill, obj_types, current_graph):
     for e in obj_obj_adds:
         involved_objects.update(e)
 
-    # Determine involved hands based on connectivity in every intermediate graph
-    # of this skill: we step through contact_changes, updating a working graph,
-    # and at each step remove surfaces and check connected components. If at
-    # any step two hands are connected (directly or via objects), this is a bi-op.
-    involved_hands = set()
+    involved_hands = InvolvedArms(changes, hands, current_graph)
+
+    # Final-state contact graph (after applying all of this skill's changes), used
+    # below for the hand-object edges the biop stream / grasp-refresh logic needs.
     G_eff = current_graph.copy()
     for edge, op in changes:
         u, v = edge
@@ -371,17 +516,6 @@ def MatchStreams(skill, obj_types, current_graph):
             G_eff.add_edge(u, v)
         elif op == "remove" and G_eff.has_edge(u, v):
             G_eff.remove_edge(u, v)
-
-        G_no_surface = G_eff.copy()
-        G_no_surface.remove_nodes_from(
-            [n for n in G_no_surface.nodes() if n in SURFACE_NAMES]
-        )
-        G_undirected = G_no_surface.to_undirected()
-        if len(G_undirected) > 0:
-            for comp_nodes in nx.connected_components(G_undirected):
-                comp_hands = hands.intersection(comp_nodes)
-                if len(comp_hands) >= 2:
-                    involved_hands.update(comp_hands)
 
     # Collect all hand-object edges in the effect state. These are preserved in
     # metadata so the unified biop-keypose stream can emit grasp outputs and the
@@ -470,7 +604,7 @@ def _classify_skill_sequence(skills, obj_types, initial_graph):
 
     classified = []
     for skill in skills:
-        # Save the pre-state graph (G_pre in Algorithm 2) before advancing.
+        # Save the pre-state graph (G_pre) before advancing.
         meta_G_pre = current_graph.copy()
         _, meta = MatchStreams(skill, obj_types, current_graph)
         meta["G_pre"] = meta_G_pre
@@ -606,19 +740,21 @@ def compute_skill_names(classified_skills, env_names, naming_mode=None):
         )
     else:
         use_side_prefix = (naming_mode == "real")
+    # Bimanual model keys, in order. canonical_bimanual_skill_name is idempotent on
+    # names that are already bimanual, so this selects exactly the bimanual entries
+    # regardless of where they sit in env_names (the full skill-key list).
+    bimanual_env_names = [n for n in env_names if canonical_bimanual_skill_name(n) == n]
     for i, meta in enumerate(classified_skills):
         streams = meta.get("matched_streams", [])
         if LEARNED_BI_KEYPOSE in streams:
-            if biop_counter >= len(env_names):
+            if biop_counter >= len(bimanual_env_names):
                 raise ValueError(
-                    f"env_names length ({len(env_names)}) is smaller than number of "
-                    f"bimanual skills encountered (index {biop_counter})"
+                    f"schema requires bimanual skill #{biop_counter} but the loaded "
+                    f"model carries only {len(bimanual_env_names)} bimanual scene "
+                    f"graph(s): {bimanual_env_names}. All available skills: "
+                    f"{list(env_names)}. Check equi_ckpt_name / biop_ckpt_name."
                 )
-            names.append(
-                canonical_bimanual_skill_name(
-                    env_names[biop_counter],
-                )
-            )
+            names.append(bimanual_env_names[biop_counter])
             biop_counter += 1
         elif LEARNED_ATTACH in streams or LEARNED_DETACH in streams:
             skill_name = canonical_unimanual_skill_name(meta, use_side_prefix)
@@ -652,27 +788,17 @@ def compute_skill_names(classified_skills, env_names, naming_mode=None):
 #  3b. Schema metadata for problem construction
 # ============================================================
 
-def get_schema_metadata_from_data(initial_graph, skills, env_names, planning_mode=DETAILED_MODE, objects_dict=None):
-    """
-    Build schema metadata from in-memory (initial_graph, skills) data.
+def get_schema_metadata_from_data(initial_graph, skills, env_names, planning_mode=DETAILED_MODE, objects_dict=None, enable_constraints=False):
+    """Build schema metadata from in-memory (initial_graph, skills) data.
 
-    Same return structure as get_schema_metadata() but without file I/O,
-    suitable for composed schemas or any in-memory pipeline.
-
-    Returns
-    -------
-    dict with:
-      - arm_names, movable_names, surface_names, object_names
-      - skill_goals: list of {"sk": name}
-      - classified: per-skill metadata from classify_skills()
-      - obj_types: dict entity -> 'hand'|'movable'|'surface'
-      - instantiated_streams: freshly computed stream specs
+    Same return structure as get_schema_metadata() but without file I/O.
     """
     _validate_planning_mode(planning_mode)
     obj_types = infer_object_types(initial_graph, skills, objects_dict)
     classified = classify_skills(skills, obj_types, initial_graph)
     instantiated_streams = build_instantiated_stream_specs(
-        classified, env_names, planning_mode=planning_mode
+        classified, env_names, planning_mode=planning_mode,
+        enable_constraints=enable_constraints,
     )
 
     hands = [e for e, t in obj_types.items() if t == "hand"]
@@ -730,20 +856,11 @@ def get_schema_metadata(config_path):
 
 
 def load_runtime_schema_metadata(skill_yaml_paths, env_names, root_path=None):
-    """
-    Load and compose runtime schema metadata from per-skill YAML configs.
+    """Load and compose runtime schema metadata from per-skill YAML configs.
 
-    This is the shared runtime loader used by online/offline plugin entrypoints.
-    It resolves YAML paths, loads the referenced schema JSON configs, overlays any
-    per-skill effect_detection annotations from raw ModeChangeDetection entries,
-    composes multiple schemas when needed, and returns the classified metadata.
-
-    Returns
-    -------
-    dict with:
-      - schema_meta: full metadata from get_schema_metadata_from_data()
-      - skill_meta_map: canonical skill name -> classified metadata
-      - instantiated_streams: alias for schema_meta["instantiated_streams"]
+    Shared runtime loader for the online/offline plugin entrypoints: resolves YAML
+    paths, loads and composes the referenced schema JSON configs, and returns the
+    classified metadata (schema_meta, skill_meta_map, instantiated_streams).
     """
     if not skill_yaml_paths:
         return {
@@ -785,11 +902,6 @@ def load_runtime_schema_metadata(skill_yaml_paths, env_names, root_path=None):
                 schema_path = yaml_relative_path
 
         initial_graph, skills, objects_dict = parse_config(schema_path, object_mapping=object_mapping)
-        with open(schema_path, "r") as f:
-            raw_json = json.loads(apply_schema_object_mapping(f.read(), object_mapping))
-        for skill, raw_entry in zip(skills, raw_json.get("ModeChangeDetection", [])):
-            if "effect_detection" in raw_entry:
-                skill["effect_detection"] = raw_entry["effect_detection"]
         schema_inputs.append((initial_graph, skills, objects_dict, schema_path))
 
     if not schema_inputs:
@@ -837,7 +949,7 @@ def load_runtime_schema_metadata(skill_yaml_paths, env_names, root_path=None):
 #  4. Compose Domain and Stream PDDL from templates
 # ============================================================
 
-def _predicates_block(has_attach, has_detach, has_bimanual, schema_arm_names=None, schema_object_names=None, schema_skill_names=None):
+def _predicates_block(has_attach, has_detach, has_bimanual, schema_arm_names=None, schema_object_names=None, schema_skill_names=None, enable_constraints=False):
     """Build the (:predicates ...) block from template fragments.
     Binding predicates: (name ?a) for arms, (name ?o) for objects, (sk_i ?sk) for skills.
     No Grounding predicate in learned parts.
@@ -851,6 +963,13 @@ def _predicates_block(has_attach, has_detach, has_bimanual, schema_arm_names=Non
     if has_bimanual:
         parts.append(_load_template("predicates_bimanual.pddl"))
 
+    # Constraint predicates: reachability heuristic + MDF policy-safety.
+    if enable_constraints:
+        parts.append("    (Reachable ?a ?o ?p )")
+        if has_bimanual:
+            parts.append("    (SkillCheckObj ?sk ?o)")
+            parts.append("    (CFreeMDF ?o ?p ?sk)")
+
     out = "\n".join(parts)
     if schema_arm_names or schema_object_names or schema_skill_names:
         out += "\n    ; Binding: schema name -> variable (no Grounding)"
@@ -863,20 +982,22 @@ def _predicates_block(has_attach, has_detach, has_bimanual, schema_arm_names=Non
     return out + "\n  )"
 
 
-def _grounded_learned_pick_action(meta, i, sk, planning_mode=DETAILED_MODE):
+def _grounded_learned_pick_action(meta, i, sk, planning_mode=DETAILED_MODE, enable_constraints=False):
     """Generate one grounded learnedPick_i action; arm and object are domain constants."""
     arm = meta["grounding_arm"]
     obj = meta["grounding_object"]
     if arm is None or obj is None:
         return ""
     _validate_planning_mode(planning_mode)
+    is_coarse = planning_mode == COARSE_MODE
     template_name = (
         "action_learned_pick_grounded_coarse.pddl"
-        if planning_mode == COARSE_MODE
+        if is_coarse
         else "action_learned_pick_grounded.pddl"
     )
     t = _load_template(template_name)
     return _fill_template(t, {
+        "REACHABLE_PRE": _reachable_pre("learned_pick_coarse" if is_coarse else "learned_pick", enable_constraints),
         "ACTION_IDX": i,
         "ARM": arm,
         "OBJ": obj,
@@ -918,25 +1039,21 @@ def _grounded_learned_place_action(meta, i, sk, surface_grounded, planning_mode=
     })
 
 
-def _build_place_action(planning_mode):
+def _build_place_action(planning_mode, enable_constraints=False):
     _validate_planning_mode(planning_mode)
-    template_name = "action_place.pddl" if planning_mode == DETAILED_MODE else "action_place_coarse.pddl"
-    return _load_template(template_name)
+    is_detailed = planning_mode == DETAILED_MODE
+    template_name = "action_place.pddl" if is_detailed else "action_place_coarse.pddl"
+    return _load_reachable_action_template(
+        template_name, "place" if is_detailed else "place_coarse", enable_constraints)
 
 
 
-def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_types=None, classified_skills=None, skill_index=None):
-    """
-    Generate one grounded BiOperation_i action implementing Algorithm 2 (Stage 1).
+def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_types=None, classified_skills=None, skill_index=None, enable_constraints=False):
+    """Generate one grounded BiOperation_i action.
 
-    Preconditions are derived from the contact graph difference (G_pre vs. G_0):
-      - arm_del (arm releases object): AtGrasp in precondition, not(AtGrasp)+ArmEmpty in effects
-      - arm_add (arm receives object): ArmEmpty+ImitateGrasp in precondition, AtGrasp in effects
-      - surface_del (object lifted): AtPose in precondition, not(AtPose) in effects
-      - surface_add (object placed): AtPose in effects
-      - container_add (object inserted): In in effects
-
-    ImitateGrasp for arm_add and grasp refresh is certified by sample-biop-keypose.
+    Preconditions/effects are derived from the contact-graph difference (G_pre vs. G_0):
+    arm/surface/container add/del edges map to AtGrasp/ArmEmpty/AtPose/In atoms, with
+    ImitateGrasp and grasp refresh certified by sample-biop-keypose.
     """
     a1 = meta.get("grounding_arm1")
     a2 = meta.get("grounding_arm2")
@@ -1005,7 +1122,7 @@ def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_t
     holding_del = sorted(held_pre - held_post)
     holding_add = sorted(held_post - held_pre)
 
-    # ---- compute G_pre non-default state via Algorithm 2 (GraphDiff) ----
+    # ---- compute G_pre non-default state via GraphDiff ----
     G_0 = DefaultGraphSchema(world_frame, involved_hands)
     e_pre = sorted(GraphDiff(G_pre_graph, G_0))  # deterministic ordering
 
@@ -1014,11 +1131,9 @@ def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_t
         (u, v) for u, v in e_pre
         if u in hands and obj_types.get(v) not in ("surface", "hand")
     ]
-    ## Only movable supported objects: a non-movable entity resting on a surface
-    ## (e.g. the assembly base on the table) can never be re-placed by any action,
-    ## so an On precondition for it is unsatisfiable whenever perception fails to
-    ## emit the matching Supported init fact. Surface-surface initial_graph edges
-    ## also arrive supporter-first and would otherwise be emitted as inverted On.
+    ## Only movable supported objects: a non-movable entity on a surface can never be
+    ## re-placed, so an On precondition for it is unsatisfiable if perception omits the
+    ## Supported init fact (and surface-surface edges arrive supporter-first, inverting On).
     pre_surface_edges = [
         (u, v) for u, v in e_pre
         if u not in hands and obj_types.get(u) == "movable"
@@ -1104,109 +1219,123 @@ def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_t
     def _ovar(name):
         return obj_vars.get(name, name)
 
-    # ---- build preconditions ----
-    pre = []
-    pre.append(f"({a1} ?a1) ({a2} ?a2) ({sk} ?sk)")
+    ctx = _SchemaVarContext(
+        arm=_arm_var, ovar=_ovar, gvar=_gvar, grefresh=_grefresh, pvar=_pvar,
+    )
+
+    # ---- σ.pre ----
+    # binding header + the biop stream's conf bindings (Bound, F_a.domain/certified)
+    pre = [f"({a1} ?a1) ({a2} ?a2) ({sk} ?sk)"]
     if planning_mode == DETAILED_MODE:
-        pre.append(f"(ImitateConf ?sk ?a1 ?q1) (ImitateConf ?sk ?a2 ?q2)")
-        pre.append(f"(AtConf ?a1 ?q1) (AtConf ?a2 ?q2)")
-        pre.append(f"(GeomState ?sk ?lstate)")
+        pre.append("(ImitateConf ?sk ?a1 ?q1) (ImitateConf ?sk ?a2 ?q2)")
+        pre.append("(AtConf ?a1 ?q1) (AtConf ?a2 ?q2)")
+        pre.append("(GeomState ?sk ?lstate)")
     else:
-        pre.append(f"(Conf ?a1 ?q1) (Conf ?a2 ?q2)")
-        pre.append(f"(GeomState ?sk ?lstate)")
+        pre.append("(Conf ?a1 ?q1) (Conf ?a2 ?q2)")
+        pre.append("(GeomState ?sk ?lstate)")
 
     for name, var in obj_vars.items():
         pre.append(f"({name} {var})")
 
-    # Pre-existing grasps from GraphDiff(G_pre, G_0): arms holding objects before this action
+    # EdgeOps2Predicates(E_pre): grasps the arms already hold before this action
     for h, o in pre_arm_edges:
-        pre.append(f"(AtGrasp {_arm_var(h)} {_ovar(o)} {_gvar(h, o)})")
-
-    # Free arms from Derived(G_pre): hands holding no movable in G_pre
+        pre += EdgeOps2Predicates("grasp_pre", h, o, ctx)
+    # Derived(G_pre): hands holding no movable are free
     for h in Derived(G_pre_graph, involved_hands, obj_types):
         pre.append(f"(ArmEmpty {_arm_var(h)})")
-
-    # Bind new grasp variables via ImitateGrasp (certified by sample-biop-keypose)
-    for h, o in arm_add:
-        pre.append(f"(ImitateGrasp ?sk {_arm_var(h)} {_ovar(o)} {_gvar(h, o)})")
-    # Bind refreshed grasp variables for unchanged holds (stale after policy)
-    for h, o in refresh_arm_edges:
-        pre.append(f"(ImitateGrasp ?sk {_arm_var(h)} {_ovar(o)} {_grefresh(h, o)})")
-
-    # Pre-existing surface contacts from GraphDiff: objects resting on surfaces before this action
+    # Bound(F_a.certified): grasp outputs the biop stream must produce/refresh
+    pre += Bound(arm_add, ctx)
+    pre += Bound(refresh_arm_edges, ctx, refresh=True)
+    # EdgeOps2Predicates(E_pre): objects already resting on surfaces
     for o, s in pre_surface_edges:
-        pre.append(f"(On {_ovar(o)} {_ovar(s)})")
-        pre.append(f"(AtPose {_ovar(o)} {_pvar(o, s)})")
+        pre += EdgeOps2Predicates("surface_pre", o, s, ctx)
 
-    # ---- build effects ----
-    eff = [f"(DoneSkill ?sk)"]
+    if enable_constraints:
+        # IsSafePolicy: inlined as a universal so universal_to_conditional compiles it into a
+        # conditional UNSATISFIABLE effect linked to the negated CFreeMDF stream -- this makes
+        # "move the blocking obstacle" reachable. CFreeMDF is keypose-free (both planning modes).
+        pre.append(
+            "(forall (?cfo ?cfp) (imply "
+            "(and (AtPose ?cfo ?cfp) (Movable ?cfo) (CanPick ?cfo) (SkillCheckObj ?sk ?cfo)) "
+            "(CFreeMDF ?cfo ?cfp ?sk)))"
+        )
 
+    # ---- σ.eff : Applied marker + contact transitions (EdgeOps2Predicates) ----
+    eff = [Applied("?sk")]
     for h, o in arm_del:
-        eff.append(f"(not (AtGrasp {_arm_var(h)} {_ovar(o)} {_gvar(h, o)}))")
-        eff.append(f"(not (ArmHolding {_arm_var(h)} {_ovar(o)}))")
-        eff.append(f"(ArmEmpty {_arm_var(h)})")
-
+        eff += EdgeOps2Predicates("grasp_del", h, o, ctx)
     for h, o in arm_add:
-        eff.append(f"(AtGrasp {_arm_var(h)} {_ovar(o)} {_gvar(h, o)})")
-        eff.append(f"(ArmHolding {_arm_var(h)} {_ovar(o)})")
-        eff.append(f"(not (ArmEmpty {_arm_var(h)}))")
-
+        eff += EdgeOps2Predicates("grasp_add", h, o, ctx)
     for o in holding_del:
-        eff.append(f"(not (Holding {_ovar(o)}))")
-
+        eff += EdgeOps2Predicates("holding_del", o, None, ctx)
     for o in holding_add:
-        eff.append(f"(Holding {_ovar(o)})")
-
+        eff += EdgeOps2Predicates("holding_add", o, None, ctx)
     # Grasp refresh: swap stale grasp with fresh one for unchanged holds
     for h, o in refresh_arm_edges:
-        eff.append(f"(not (AtGrasp {_arm_var(h)} {_ovar(o)} {_gvar(h, o)}))")
-        eff.append(f"(AtGrasp {_arm_var(h)} {_ovar(o)} {_grefresh(h, o)})")
-
-    # Object lifted from surface: remove its pose (On is derived from Supported+AtPose)
+        eff += EdgeOps2Predicates("grasp_refresh", h, o, ctx)
     for o, s in surface_del:
-        eff.append(f"(not (AtPose {_ovar(o)} {_pvar(o, s)}))")
-
+        eff += EdgeOps2Predicates("surface_del", o, s, ctx)
     for o, s in surface_add:
-        eff.append(f"(AtPose {_ovar(o)} {_pvar(o, s)})")
-
+        eff += EdgeOps2Predicates("surface_add", o, s, ctx)
     for o, c in container_add:
-        eff.append(f"(In {_ovar(o)} {_ovar(c)})")
-
+        eff += EdgeOps2Predicates("container_add", o, c, ctx)
     if planning_mode == DETAILED_MODE:
         eff.append(f"(CanMove {_arm_var(a1)})")
         eff.append(f"(CanMove {_arm_var(a2)})")
 
-    # ---- assemble parameter list ----
-    params = ["?a1", "?a2", "?sk"]
-    params.extend(["?q1", "?q2"])
-    params.extend(obj_vars.values())
-    params.extend(grasp_vars.values())
-    params.extend(refresh_grasp_vars.values())
-    params.extend(pose_vars.values())
-    params.append("?lstate")
-    params_str = " ".join(params)
+    # ---- σ.args ----
+    params = SortedArguments(
+        ["?a1", "?a2", "?sk"], ["?q1", "?q2"],
+        obj_vars, grasp_vars, refresh_grasp_vars, pose_vars, "?lstate",
+    )
 
-    indent_pre = "\n      ".join(pre)
-    indent_eff = "\n      ".join(eff)
+    return ActionSchema(idx=i, params=params, pre=pre, eff=eff).render()
 
-    template = _load_template("action_bioperation_grounded_dynamic.pddl")
-    return _fill_template(template, {
-        "ACTION_IDX": i,
-        "PARAMS": params_str,
-        "PRECONDITIONS": indent_pre,
-        "EFFECTS": indent_eff,
-    })
+
+def BuildActionSchema(classified_skills, skill_names, obj_types,
+                      planning_mode=DETAILED_MODE, enable_constraints=False):
+    """Build the learned-skill schemata (the learned actions only).
+
+    For each detected skill, the stream matched by ``MatchStreams`` selects which
+    learned schema ``σ = (args, pre, eff)`` to render. The traditional schemata
+    (transit/transfer/primitive pick/place) are contributed by :func:`build_domain_pddl`.
+    """
+    actions = []
+    for i, meta in enumerate(classified_skills):
+        sk = skill_names[i]
+        streams = meta["matched_streams"]
+        if LEARNED_ATTACH in streams:
+            block = _grounded_learned_pick_action(
+                meta, i, sk, planning_mode=planning_mode,
+                enable_constraints=enable_constraints,
+            )
+            if block:
+                actions.append(block)
+        if LEARNED_DETACH in streams:
+            surface_grounded = meta.get("grounding_surface") is not None
+            block = _grounded_learned_place_action(
+                meta, i, sk, surface_grounded, planning_mode=planning_mode,
+            )
+            if block:
+                actions.append(block)
+        if LEARNED_BI_KEYPOSE in streams:
+            block = _grounded_bioperation_action(
+                meta, i, sk, planning_mode=planning_mode, obj_types=obj_types,
+                classified_skills=classified_skills, skill_index=i,
+                enable_constraints=enable_constraints,
+            )
+            if block:
+                actions.append(block)
+    return actions
 
 
 def build_domain_pddl(classified_skills, schema_arm_names=None, schema_object_names=None,
-                      schema_skill_names=None, obj_types=None, planning_mode=DETAILED_MODE):
-    """
-    Compose the domain PDDL with per-skill grounded learned actions.
+                      schema_skill_names=None, obj_types=None, planning_mode=DETAILED_MODE,
+                      enable_constraints=False):
+    """Compose the domain PDDL with per-skill grounded learned actions.
 
-    schema_arm_names: list of arm/hand names for binding predicates (name ?a).
-    schema_object_names: list of object names (movables + surfaces) for binding predicates (name ?o).
-    schema_skill_names: list of skill names for binding predicates (sk_i ?sk). Not added to :constants.
-    obj_types: dict entity -> 'hand'|'movable'|'surface' — used for dynamic BiOp schema generation.
+    The schema_*_names lists supply the arm/object/skill names used to bind the
+    learned-action predicates; obj_types drives dynamic BiOp schema generation.
     """
     _validate_planning_mode(planning_mode)
     all_streams = set()
@@ -1224,7 +1353,7 @@ def build_domain_pddl(classified_skills, schema_arm_names=None, schema_object_na
     # else:
     header = header.replace("{{SCHEMA_CONSTANTS}}", "")
     parts.append(header)
-    parts.append(_predicates_block(has_attach, has_detach, has_bimanual, schema_arm_names=schema_arm_names, schema_object_names=schema_object_names, schema_skill_names=schema_skill_names))
+    parts.append(_predicates_block(has_attach, has_detach, has_bimanual, schema_arm_names=schema_arm_names, schema_object_names=schema_object_names, schema_skill_names=schema_skill_names, enable_constraints=enable_constraints))
 
     parts.append("\n  ;--------------------------------------------------\n")
 
@@ -1232,7 +1361,7 @@ def build_domain_pddl(classified_skills, schema_arm_names=None, schema_object_na
     if planning_mode == DETAILED_MODE:
         transit = _load_template("action_transit.pddl")
         transfer = _load_template("action_transfer.pddl")
-        pick = _load_template("action_pick.pddl")
+        pick = _load_reachable_action_template("action_pick.pddl", "pick", enable_constraints)
         parts.append(transit)
         parts.append("")
         parts.append(transfer)
@@ -1244,45 +1373,20 @@ def build_domain_pddl(classified_skills, schema_arm_names=None, schema_object_na
         # (Grasp ?a ?o ?g) with learnedPick_* but wins search on shorter preconditions,
         # causing learnedPick_* (and its DoneSkill effect) to never be expanded.
         if not has_attach:
-            parts.append(_load_template("action_pick_coarse.pddl"))
+            parts.append(_load_reachable_action_template("action_pick_coarse.pddl", "pick_coarse", enable_constraints))
             parts.append("")
-    place = _build_place_action(planning_mode)
+    place = _build_place_action(planning_mode, enable_constraints=enable_constraints)
     parts.append(place)
 
-    # Learned actions: one grounded action per skill
+    # 𝔄 \ 𝔄₀ : the learned-skill schemata, one σ per detected skill.
     if schema_skill_names is None:
         raise ValueError("schema_skill_names is required for build_domain_pddl")
-    skill_names = schema_skill_names
-    for i, meta in enumerate(classified_skills):
-        sk = skill_names[i]
-        streams = meta["matched_streams"]
-        if LEARNED_ATTACH in streams:
-            blk = _grounded_learned_pick_action(
-                meta, i, sk, planning_mode=planning_mode
-            )
-            if blk:
-                parts.append("")
-                parts.append(blk)
-        if LEARNED_DETACH in streams:
-            surface_grounded = meta.get("grounding_surface") is not None
-            blk = _grounded_learned_place_action(
-                meta, i, sk, surface_grounded,
-                planning_mode=planning_mode,
-            )
-            if blk:
-                parts.append("")
-                parts.append(blk)
-        if LEARNED_BI_KEYPOSE in streams:
-            blk = _grounded_bioperation_action(
-                meta, i, sk,
-                planning_mode=planning_mode,
-                obj_types=obj_types,
-                classified_skills=classified_skills,
-                skill_index=i,
-            )
-            if blk:
-                parts.append("")
-                parts.append(blk)
+    for block in BuildActionSchema(
+        classified_skills, schema_skill_names, obj_types,
+        planning_mode=planning_mode, enable_constraints=enable_constraints,
+    ):
+        parts.append("")
+        parts.append(block)
 
     parts.append("\n  ;--------------------------------------------------\n")
     parts.append(_load_template("derived_base.pddl"))
@@ -1296,16 +1400,11 @@ def build_domain_pddl(classified_skills, schema_arm_names=None, schema_object_na
 #  4b. Instantiated stream PDDL generation
 # ============================================================
 
-def build_instantiated_stream_specs(classified_skills, env_names, planning_mode=DETAILED_MODE):
-    """
-    Build per-skill instantiated stream spec dicts from classified skill metadata.
+def build_instantiated_stream_specs(classified_skills, env_names, planning_mode=DETAILED_MODE, enable_constraints=False):
+    """Build per-skill instantiated stream spec dicts from classified skill metadata.
 
-    Returns a flat list of spec dicts, one per stream per skill:
-      - LearnedAttach  -> {"name": "sample-grasp-traj_i", "template": "sample-grasp-traj",
-                           "skill_index": i, "skill": "sk_i", "arm": ..., "object": ...}
-      - LearnedDetach  -> {"name": "sample-place-traj_i", "template": "sample-place-traj",
-                           ..., "surface": ... or None}
-      - LearnedBiKeyPose -> "sample-biop-keypose_i" with "arm1"/"arm2"
+    Returns a flat list of spec dicts, one per stream per skill (sample-grasp-traj /
+    sample-place-traj / sample-biop-keypose, each tagged with its skill index and arms).
     """
     _validate_planning_mode(planning_mode)
     specs = []
@@ -1384,6 +1483,14 @@ def build_instantiated_stream_specs(classified_skills, env_names, planning_mode=
                     "contact_aware": True,
                     **base,
                 })
+                # MDF policy-safety stream: keypose-free, emitted in both planning modes.
+                if enable_constraints:
+                    specs.append({
+                        "name": f"test-cfree-bioperation-pose_{i}",
+                        "template": "test-cfree-bioperation-pose",
+                        "contact_aware": False,
+                        **base,
+                    })
 
     return specs
 
@@ -1391,6 +1498,7 @@ def build_instantiated_stream_specs(classified_skills, env_names, planning_mode=
 # Map stream template name to template file name (in pddl_templates/)
 _STREAM_TEMPLATE_FILES = {
     "sample-grasp-traj": "stream_sample_grasp_traj.pddl",
+    "test-cfree-bioperation-pose": "stream_test_cfree_bioperation_pose.pddl",
 }
 
 
@@ -1494,6 +1602,7 @@ def _render_instantiated_stream_block(spec):
     if template == "sample-grasp-traj":
         replacements["ARM"] = spec.get("arm", "")
         replacements["OBJ"] = spec.get("object", "")
+    # test-cfree-bioperation-pose only needs NAME + SK (keypose-free MDF check).
 
     return _fill_template(content, replacements)
 
@@ -1538,35 +1647,36 @@ def _remove_named_stream_blocks(stream_pddl, stream_names):
     return out
 
 
-def _build_base_stream_pddl(planning_mode):
+def _build_base_stream_pddl(planning_mode, enable_constraints=False):
     base_pddl = _load_template("stream.pddl")
     _validate_planning_mode(planning_mode)
-    if planning_mode == DETAILED_MODE:
-        return base_pddl
-    return _remove_named_stream_blocks(base_pddl, [
-        "test-cfree-traj-pose",
-        "plan-learned-pick",
-        "plan-motion",
-        "plan-place",
-    ])
+    if planning_mode != DETAILED_MODE:
+        base_pddl = _remove_named_stream_blocks(base_pddl, [
+            "test-cfree-traj-pose",
+            "plan-learned-pick",
+            "plan-motion",
+            "plan-place",
+        ])
+    if enable_constraints:
+        # Insert the reachability test stream before the template's final ')'.
+        close_idx = base_pddl.rfind(")")
+        if close_idx < 0:
+            raise ValueError("Invalid stream PDDL template: missing final closing ')'")
+        base_pddl = (base_pddl[:close_idx].rstrip()
+                     + "\n\n" + _REACHABLE_STREAM_BLOCK + "\n\n)")
+    return base_pddl
 
 
-def build_stream_pddl(classified_skills, env_names, planning_mode=DETAILED_MODE):
-    """
-    Compose the full stream PDDL for a task by:
-      1. Loading the universal stream.pddl template
-      2. Building per-skill instantiated stream blocks
-      3. Appending grounded blocks before the final closing ')'
-
-    Returns
-    -------
-    (stream_pddl_str, instantiated_specs)
+def build_stream_pddl(classified_skills, env_names, planning_mode=DETAILED_MODE, enable_constraints=False):
+    """Compose the full stream PDDL: the universal stream.pddl template plus per-skill
+    instantiated stream blocks. Returns (stream_pddl_str, instantiated_specs).
     """
     _validate_planning_mode(planning_mode)
-    base_pddl = _build_base_stream_pddl(planning_mode)
+    base_pddl = _build_base_stream_pddl(planning_mode, enable_constraints=enable_constraints)
 
     instantiated_specs = build_instantiated_stream_specs(
-        classified_skills, env_names, planning_mode=planning_mode
+        classified_skills, env_names, planning_mode=planning_mode,
+        enable_constraints=enable_constraints,
     )
     if not instantiated_specs:
         return base_pddl, instantiated_specs
@@ -1631,7 +1741,7 @@ def _partition_schema_entities(obj_types):
     return hands, movables, surfaces
 
 
-def _build_schema_outputs(initial_graph, skills, env_names, planning_mode, objects_dict=None):
+def _build_schema_outputs(initial_graph, skills, env_names, planning_mode, objects_dict=None, enable_constraints=False):
     """Run the shared schema classification and PDDL generation pipeline."""
     _validate_planning_mode(planning_mode)
     if not env_names:
@@ -1651,9 +1761,11 @@ def _build_schema_outputs(initial_graph, skills, env_names, planning_mode, objec
         schema_skill_names=schema_skill_names,
         obj_types=obj_types,
         planning_mode=planning_mode,
+        enable_constraints=enable_constraints,
     )
     stream_pddl, instantiated_specs = build_stream_pddl(
-        classified, env_names, planning_mode=planning_mode
+        classified, env_names, planning_mode=planning_mode,
+        enable_constraints=enable_constraints,
     )
     return {
         "domain_pddl": domain_pddl,
@@ -1751,12 +1863,13 @@ def print_summary(initial_graph, skills, classified, obj_types, init_facts=None)
 
 def build_action_schema_from_data(initial_graph, skills, env_names, output_dir=None,
                                   domain_name="composed",
-                                  planning_mode=DETAILED_MODE, objects_dict=None):
+                                  planning_mode=DETAILED_MODE, objects_dict=None,
+                                  enable_constraints=False):
     """
     Like build_action_schema() but from in-memory (initial_graph, skills) data.
     Returns (domain_pddl, stream_pddl). Writes files only if output_dir is provided.
     """
-    outputs = _build_schema_outputs(initial_graph, skills, env_names, planning_mode, objects_dict=objects_dict)
+    outputs = _build_schema_outputs(initial_graph, skills, env_names, planning_mode, objects_dict=objects_dict, enable_constraints=enable_constraints)
     domain_pddl = outputs["domain_pddl"]
     stream_pddl = outputs["stream_pddl"]
 
@@ -1773,27 +1886,16 @@ def build_action_schema_from_data(initial_graph, skills, env_names, output_dir=N
 
 
 def build_action_schema(config_path, output_dir=None, domain_name=None,
-                        planning_mode=DETAILED_MODE):
-    """
-    Main entry point implementing Algorithm 2: BuildActionSchema.
+                        planning_mode=DETAILED_MODE, enable_constraints=False):
+    """Main entry point: parse the JSON config and write the domain/stream PDDL files.
 
-    Parameters
-    ----------
-    config_path : str
-        Path to the JSON config (e.g. two_arm_threading_changes.json).
-    output_dir : str or None
-        Directory for output files. Defaults to the config's directory.
-    domain_name : str or None
-        Base name for output files. Defaults to the config filename stem.
-    Returns
-    -------
-    domain_pddl : str
-    stream_pddl : str
+    output_dir defaults to the config's directory and domain_name to its filename stem.
+    Returns (domain_pddl, stream_pddl).
     """
-    # Algo 2 inputs: parse config
+    # Parse config inputs
     initial_graph, skills, objects_dict = parse_config(config_path)
     env_name = os.path.splitext(os.path.basename(config_path))[0].replace("_changes", "")
-    outputs = _build_schema_outputs(initial_graph, skills, [env_name], planning_mode, objects_dict=objects_dict)
+    outputs = _build_schema_outputs(initial_graph, skills, [env_name], planning_mode, objects_dict=objects_dict, enable_constraints=enable_constraints)
     domain_pddl = outputs["domain_pddl"]
     stream_pddl = outputs["stream_pddl"]
     instantiated_specs = outputs["instantiated_specs"]

@@ -39,3 +39,7 @@ ref_doc/*
 .env
 *.log
 *.tsv
+*.csv
+# Local-only schema-construction golden test + fixtures (not tracked)
+examples/pybullet/aloha_real/openworld_aloha/tests/test_schema_construction_golden.py
+examples/pybullet/aloha_real/openworld_aloha/tests/golden_schema/

@@ -691,11 +691,22 @@ def effect_monitor_sensor_data(lfd, robot_entity, contact_predictor=None, target
             "robot0": left,
             "robot1": right,
         }
-    if robot_entity is not None:
-        ctrl = robot_entity.controller
+    # Gripper values: the real ROS Controller publishes l/r_gripper_val, but the
+    # sim SimulatedController never sets them — so for sim read the live robosuite
+    # gripper qpos through the LfD wrapper and map it with the same
+    # pos2joint_gripper scale the OSC executor commands. (eef_xyz above is sourced
+    # the same capability-based way.)
+    ctrl = robot_entity.controller if robot_entity is not None else None
+    if ctrl is not None and getattr(ctrl, "l_gripper_val", None) is not None:
         sensor_data["gripper_vals"] = {
             "left_arm": ctrl.l_gripper_val,
             "right_arm": ctrl.r_gripper_val,
+        }
+    elif lfd is not None and hasattr(lfd, "get_cur_jpose_robosuite") and robot_entity is not None:
+        jpose = lfd.get_cur_jpose_robosuite()
+        sensor_data["gripper_vals"] = {
+            "left_arm": float(robot_entity.pos2joint_gripper(jpose["left_gripper"][0])),
+            "right_arm": float(robot_entity.pos2joint_gripper(jpose["right_gripper"][0])),
         }
     if target_obj is not None and getattr(target_obj, "observed_pose", None) is not None:
         sensor_data["obj_pose"] = np.asarray(target_obj.observed_pose[0])

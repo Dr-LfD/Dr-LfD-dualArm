@@ -1,7 +1,7 @@
   (:action pick
     :parameters (?a ?g ?o ?p)
     :precondition (and (CanPick ?o)
-                       (AtPose ?o ?p)
+                       (AtPose ?o ?p){{REACHABLE_PRE}}
                        (ArmEmpty ?a)
                        (Grasp ?a ?o ?g)
                        (not (Supporting ?o))

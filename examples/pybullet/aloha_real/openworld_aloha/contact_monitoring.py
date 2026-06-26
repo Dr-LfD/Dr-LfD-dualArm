@@ -686,10 +686,10 @@ if __name__ == "__main__":
 
     _repo = resolve_workspace_root(__file__)
     IMAGE = os.path.expanduser("~/interbotix_ws/src/pddlstream_aloha/cam_wrist_rgb_latest.png")
-    CONTACT_REPO = os.path.expandvars("${WS_ROOT}/ContactPrediction")
-    # CHECKPOINT = "${WS_ROOT}/ContactPrediction/data/outputs/2026.05.11/14.45.50_train_keypose_transformer_handoff_cup_multi_edge_wristview/checkpoints/latest.ckpt"
+    CONTACT_REPO = os.path.expandvars("${CONTACT_PREDICTION_ROOT}")
+    # CHECKPOINT = "${CONTACT_PREDICTION_ROOT}/data/outputs/2026.05.11/14.45.50_train_keypose_transformer_handoff_cup_multi_edge_wristview/checkpoints/latest.ckpt"
     # CONTACT_EDGE = "right_arm_cup"
-    CHECKPOINT = os.path.expandvars("${WS_ROOT}/ContactPrediction/data/outputs/2026.05.19/11.39.08_train_keypose_transformer_screwdriver_multi_edge_wristview/checkpoints/latest.ckpt")
+    CHECKPOINT = os.path.expandvars("${CONTACT_PREDICTION_ROOT}/data/outputs/2026.05.19/11.39.08_train_keypose_transformer_screwdriver_multi_edge_wristview/checkpoints/latest.ckpt")
     CONTACT_EDGE = "left_arm_screwdriver"
     DEVICE = "cuda:0"
     # THRESHOLD = 0.3

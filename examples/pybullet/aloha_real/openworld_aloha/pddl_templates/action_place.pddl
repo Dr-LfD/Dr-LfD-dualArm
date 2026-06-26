@@ -1,7 +1,7 @@
   (:action place
     :parameters (?a ?g ?o ?p ?s ?sp ?aq ?at)
     :precondition (and (Place ?a ?o ?p ?g ?aq ?at)
-                       (Supported ?o ?p ?s ?sp)
+                       (Supported ?o ?p ?s ?sp){{REACHABLE_PRE}}
                        (AtGrasp ?a ?o ?g)
                        (AtPose ?s ?sp)
                        (AtConf ?a ?aq)

@@ -1,0 +1,147 @@
+{
+  "objects": {
+    "cup": [
+      "CanPick"
+    ],
+    "left_arm": [],
+    "right_arm": [],
+    "sponge": [
+      "CanPick"
+    ],
+    "table": []
+  },
+  "initial_graph": [
+    [
+      "cup",
+      "table"
+    ],
+    [
+      "sponge",
+      "table"
+    ],
+    [
+      "left_arm",
+      "table"
+    ],
+    [
+      "right_arm",
+      "table"
+    ]
+  ],
+  "skills": [
+    {
+      "skill_id": 1,
+      "name": "grasp",
+      "edge_ops": [
+        [
+          [
+            "left_arm",
+            "cup"
+          ],
+          "Add"
+        ],
+        [
+          [
+            "cup",
+            "table"
+          ],
+          "Del"
+        ]
+      ]
+    },
+    {
+      "skill_id": 2,
+      "name": "grasp",
+      "edge_ops": [
+        [
+          [
+            "right_arm",
+            "sponge"
+          ],
+          "Add"
+        ],
+        [
+          [
+            "sponge",
+            "table"
+          ],
+          "Del"
+        ]
+      ],
+      "effect_detection": {
+        "backend": "contact_predictor",
+        "contact_edge": "right_arm_sponge",
+        "threshold": 0.5,
+        "skip_frame": 3,
+        "camera_names": [
+          "cam_wrist"
+        ],
+        "robot_camera_map": {
+          "right_arm": "cam_wrist"
+        },
+        "obs_key_map": {
+          "cam_wrist": "cam_right_wrist"
+        }
+      }
+    },
+    {
+      "skill_id": 3,
+      "name": "bimanual clean",
+      "edge_ops": [
+        [
+          [
+            "cup",
+            "sponge"
+          ],
+          "Add"
+        ],
+        [
+          [
+            "cup",
+            "sponge"
+          ],
+          "Del"
+        ]
+      ],
+      "effect_detection": {
+        "timeout_t": 200
+      }
+    }
+  ],
+  "instantiated_streams": [
+    {
+      "name": "sample-grasp-traj_0",
+      "template": "sample-grasp-traj",
+      "skill_index": 0,
+      "skill": "left_arm_grasp_cup",
+      "arm": "left_arm",
+      "object": "cup"
+    },
+    {
+      "name": "sample-grasp-traj_1",
+      "template": "sample-grasp-traj",
+      "skill_index": 1,
+      "skill": "right_arm_grasp_sponge",
+      "arm": "right_arm",
+      "object": "sponge"
+    },
+    {
+      "name": "sample-biop-keypose_2",
+      "template": "sample-biop-keypose",
+      "skill_index": 2,
+      "skill": "bimanual_0",
+      "arm1": "left_arm",
+      "arm2": "right_arm",
+      "eff_grasps": []
+    },
+    {
+      "name": "test-cfree-bioperation-pose_2",
+      "template": "test-cfree-bioperation-pose",
+      "skill_index": 2,
+      "skill": "bimanual_0",
+      "arm1": "left_arm",
+      "arm2": "right_arm",
+      "eff_grasps": []
+    }
+  ]
+}

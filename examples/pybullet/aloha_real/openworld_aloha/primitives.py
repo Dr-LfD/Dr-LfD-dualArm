@@ -618,7 +618,8 @@ class Trajectory(Command):
 
 class GroupTrajectory(Trajectory):
     def __init__(self, robot, group, path, attachments=[], *args,
-                 ee_path=None, ee_link=None, steps_per_waypoint=1, **kwargs):
+                 ee_path=None, ee_link=None, steps_per_waypoint=1,
+                 freeze_gripper=False, target_gripper_positions=None, **kwargs):
         joints = robot.get_group_joints(group)
         super(GroupTrajectory, self).__init__(robot, joints, path, *args, **kwargs)
         self.group = group
@@ -627,6 +628,9 @@ class GroupTrajectory(Trajectory):
         self.ee_path = ee_path
         self.ee_link = ee_link
         self.steps_per_waypoint = int(steps_per_waypoint)
+        # OSC-execution hints set by the motion planner (see _annotate_motion_command).
+        self.freeze_gripper = bool(freeze_gripper)
+        self.target_gripper_positions = target_gripper_positions
 
     def set_executed(self, val):
         self.executed = val

@@ -1,5 +1,5 @@
 {
-      "objects": {
+  "objects": {
     "robot_left": [],
     "piece_1": [
       "CanPick"
@@ -7,9 +7,8 @@
     "piece_2": [
       "CanPick"
     ],
-    "base":[]
+    "base": []
   },
-
   "initial_graph": [
     [
       "table",
@@ -32,74 +31,74 @@
       "robot1"
     ]
   ],
-  "ModeChangeDetection": [
+  "skills": [
     {
-      "graph_number": 1,
-      "contact_changes": [
+      "skill_id": 1,
+      "name": "grasp",
+      "edge_ops": [
         [
           [
             "robot0",
             "piece_1"
           ],
-          "add"
+          "Add"
         ],
         [
           [
             "piece_1",
             "table"
           ],
-          "remove"
+          "Del"
         ]
-      ],
-      "description": "grasp"
+      ]
     },
     {
-      "graph_number": 2,
-      "contact_changes": [
+      "skill_id": 2,
+      "name": "grasp",
+      "edge_ops": [
         [
           [
             "robot1",
             "piece_2"
           ],
-          "add"
+          "Add"
         ],
         [
           [
             "piece_2",
             "table"
           ],
-          "remove"
+          "Del"
         ]
       ],
       "timestamps": [
         37,
         72
-      ],
-      "description": "grasp"
+      ]
     },
     {
-      "graph_number": 3,
-      "contact_changes": [
+      "skill_id": 3,
+      "name": "bimanual assemble",
+      "edge_ops": [
         [
           [
             "base",
             "piece_1"
           ],
-          "add"
+          "Add"
         ],
         [
           [
             "base",
             "piece_2"
           ],
-          "add"
+          "Add"
         ]
       ],
       "timestamps": [
         73,
         94
-      ],
-      "description": "bimanual assemble"
+      ]
     }
   ],
   "instantiated_streams": [

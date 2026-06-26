@@ -53,13 +53,7 @@ def policy_skill_name(skill_name):
 def resolve_policy_skill_name(skill_name, available_keys=None):
     """Resolve a schema skill name to the key the loaded model actually carries.
 
-    Schema names are generated with a fixed object order (``..._place_{obj}_{surf}``
-    in canonical_unimanual_skill_name), but some per-skill checkpoints were trained
-    with the two objects in the opposite order (e.g. ``place_basket_1_obj_1`` vs
-    ``place_obj_1_basket_1``). When the canonical key is absent from
-    ``available_keys``, fall back to the model key whose ``place`` objects are the
-    same multiset in any order. Grasp skills (single object) and exact matches are
-    returned unchanged.
+    Handles object-order mismatches between schema names and per-skill checkpoints.
     """
     name = policy_skill_name(skill_name)
     if not available_keys or name in available_keys:

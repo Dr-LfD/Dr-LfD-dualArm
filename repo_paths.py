@@ -9,13 +9,22 @@ can be renamed or vendored without breaking path resolution.
 Placeholders understood by :func:`load_yaml`:
 
 * ``${REPO_ROOT}`` -- absolute path of this repository (always available).
-* ``${WS_ROOT}``   -- the user's external workspace holding sibling
-                      dependency repos (Diffusion-Policy, equibot, SAM, ...).
-                      Set it in your environment; see ``.env.example``.
+* ``${WS_ROOT}``   -- the user's external workspace (SAM and other shared
+                      assets). Set it in your environment.
 * ``${HOME}``      -- standard home directory (for ``~/.cache`` etc.).
 
-Unset variables are left verbatim so a missing path fails loudly at use time
-instead of resolving to a silently wrong location.
+Each external dependency module has its own dedicated macro rather than a
+``${WS_ROOT}/<module>`` sub-path, so a repo can live anywhere:
+
+* ``${PRIMITIVE_LEARNING_ROOT}``  -- equibot (object-centric primitive learning).
+* ``${DIFFUSION_POLICY_ROOT}``    -- Diffusion-Policy (visuomotor policies).
+* ``${SPHERICAL_DP_ROOT}``        -- Spherical Diffusion Policy.
+* ``${DEXMIMICGEN_ROOT}``         -- dexmimicgen (sim env / data).
+* ``${CONTACT_PREDICTION_ROOT}``  -- contact-prediction (real-robot).
+
+All are listed in ``.env.example``. Unset variables are left verbatim so a
+missing path fails loudly at use time instead of resolving to a silently wrong
+location.
 """
 
 import os

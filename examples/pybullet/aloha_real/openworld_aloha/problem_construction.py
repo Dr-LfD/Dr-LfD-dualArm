@@ -10,7 +10,7 @@ from pddlstream.language.constants import (
 )
 from examples.pybullet.utils.pybullet_tools.utils import is_placement, get_bodies,  find_kw_in_skill
 
-from examples.pybullet.aloha_real.openworld_aloha.openworld_streams import get_placement_gen_fn, get_plan_place_fn, get_plan_drop_fn, get_plan_motion_fn, get_pose_cost_fn, get_test_cfree_pose_pose, get_cfree_pregrasp_pose_test, get_cfree_traj_pose_test, BASE_COST, get_imitate_traj_fn, get_learned_pick_fn
+from examples.pybullet.aloha_real.openworld_aloha.openworld_streams import get_placement_gen_fn, get_plan_place_fn, get_plan_drop_fn, get_plan_motion_fn, get_pose_cost_fn, get_test_cfree_pose_pose, get_cfree_pregrasp_pose_test, get_cfree_traj_pose_test, BASE_COST, get_imitate_traj_fn, get_learned_pick_fn, get_reachability_test, get_mdf_clear_test
 from pddlstream.language.generator import from_gen_fn, from_fn, from_test
 from pddlstream.language.stream import StreamInfo, PartialInputs
 from pddlstream.language.function import FunctionInfo
@@ -75,11 +75,10 @@ def _schema_obj_to_body(obj):
     return obj
 
 def _load_schema_input_from_yaml(yaml_path):
-    """Return ((initial_graph, skills), source_label) from a per-skill YAML file.
+    """Return ((initial_graph, skills, objects_dict), source_label) from a per-skill YAML file.
 
-    Reads the 'schema' key inside 'sg_params' and supports two forms:
-      path form:   sg_params.schema.path  → calls parse_config() on the resolved JSON path
-      inline form: sg_params.schema contains initial_graph + ModeChangeDetection directly
+    Reads the 'schema' key inside 'sg_params' (path form only; the inline
+    initial_graph+skills form is reserved but not yet wired up).
     """
     from examples.pybullet.aloha_real.scripts.standalone_scripts.schema_construction import (
         parse_config,
@@ -101,26 +100,19 @@ def _load_schema_input_from_yaml(yaml_path):
         object_mapping = yaml_data.get("object_mapping")
         return parse_config(schema_path, object_mapping=object_mapping), schema_path
 
-    # if "initial_graph" in schema_cfg and "ModeChangeDetection" in schema_cfg:
+    # if "initial_graph" in schema_cfg and "skills" in schema_cfg:
     #     return parse_config_from_dict(schema_cfg), yaml_path
 
     raise ValueError(
         f"sg_params.schema must contain either 'path' or inline "
-        f"'initial_graph' + 'ModeChangeDetection' in: {yaml_path}"
+        f"'initial_graph' + 'skills' in: {yaml_path}"
     )
 
 
 def _compose_all_schema_inputs(inputs_with_sources):
-    """Compose a list of ((graph, skills, objects_dict), source) pairs into one (graph, skills, dict).
+    """Compose ((graph, skills, objects_dict), source) pairs into one (graph, skills, dict).
 
-    Parameters
-    ----------
-    inputs_with_sources : list of ((graph, skills, objects_dict), source_str)
-        At least one entry required.
-
-    Returns
-    -------
-    composed_graph, composed_skills, composed_objects_dict
+    Needs at least one entry.
     """
     from examples.pybullet.aloha_real.scripts.standalone_scripts.schema_construction import _compose_raw
 
@@ -157,6 +149,10 @@ def pddlstream_from_schema_problem(
         get_schema_metadata_from_data, compute_skill_names, build_action_schema_from_data,
     )
     robot_entity.reset()
+    # Per-task toggle (default off): emit reachability + MDF policy-safety constraints only
+    # for tasks that opt in via use_constraints (aloha real robot, mj-insertion-unsafe). DMG
+    # threading/assembly leave it off, so generated PDDL stays constraint-free.
+    enable_constraints = kwargs.pop("use_constraints", False)
     perceived_objects = list(belief.estimated_objects)
     stackable = list(belief.known_surfaces)
 
@@ -168,6 +164,7 @@ def pddlstream_from_schema_problem(
     schema_metadata = get_schema_metadata_from_data(
         composed_graph, composed_skills, env_names=env_names, planning_mode=planning_mode,
         objects_dict=composed_objects_dict,
+        enable_constraints=enable_constraints,
     )
     debug_dir = tmp_pddl_dir or os.path.join(tempfile.gettempdir(), "pddlstream_aloha_debug")
     ## debug mode: use existing domain and stream
@@ -182,6 +179,7 @@ def pddlstream_from_schema_problem(
             env_names=env_names,
             planning_mode=planning_mode,
             objects_dict=composed_objects_dict,
+            enable_constraints=enable_constraints,
         )
     # arm_names = schema_metadata["arm_names"]
     # movable_names = schema_metadata["movable_names"]
@@ -307,6 +305,17 @@ def pddlstream_from_schema_problem(
             init.append(("SkillDetach", sk_name))
         if "LearnedBiKeyPose" in meta.get("matched_streams", []):
             init.append(("Skillbimanual", sk_name))
+            if enable_constraints:
+                # SkillCheckObj for movable objects NOT manipulated by this skill: scopes the
+                # CFreeMDF policy-safety check to potential blocking obstacles only.
+                involved = meta.get("involved_objects", set())
+                for mname in movable_names:
+                    if mname in involved:
+                        continue
+                    pobj = schema_name_to_obj.get(mname)
+                    if pobj is None:
+                        continue
+                    init.append(("SkillCheckObj", sk_name, pobj))
         init.append((sk_name, sk_name))
 
     goal = []
@@ -354,14 +363,19 @@ def pddlstream_from_schema_problem(
         planning_mode=planning_mode,
         schema_arm_to_group=schema_arm_to_group,
         equivSkill_info_dict=equivSkill_info_dict,
+        enable_constraints=enable_constraints,
         **stream_kwargs
     )
     return PDDLProblem(domain_pddl, constant_map, stream_pddl, stream_map, init, goal), stream_info
 
 
-def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp_mode="gpd", task_name = 'screwdriver', posegen_mode = 'diffusion',  verbose = False, equivSkill_info_dict = None, instantiated_streams=None, planning_mode="detailed", **kwargs):
+def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp_mode="gpd", task_name = 'screwdriver', posegen_mode = 'diffusion',  verbose = False, equivSkill_info_dict = None, instantiated_streams=None, planning_mode="detailed", enable_constraints=False, **kwargs):
 
     schema_arm_to_group = kwargs.pop('schema_arm_to_group', None)
+    # MDF policy-safety config (only used when enable_constraints): path to the skill's
+    # swept-volume field + clearance margin.
+    mdf_path = kwargs.pop('mdf_path', None)
+    mdf_safety_margin = kwargs.pop('mdf_safety_margin', 0.05)
     static_obstacles = list(obstacles)
     if table is not None and table not in static_obstacles:
         static_obstacles.append(table)
@@ -416,6 +430,33 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
         raise NotImplementedError(
             f"posegen_mode {posegen_mode!r} is no longer supported; only 'diffusion' remains"
         )
+
+    # Reachability + MDF policy-safety bindings, per-task opt-in.
+    _mdf_cache = {}
+
+    def _get_mdf_data():
+        if 'data' not in _mdf_cache:
+            from examples.pybullet.aloha_real.learned_classifier import mdf_construction as _mdfmod
+            from pddlstream.utils import get_file_path
+            path = mdf_path or 'mdf_data_mj_insertion.pkl'
+            if not os.path.isabs(path):
+                path = get_file_path(_mdfmod.__file__, path)
+            if not os.path.exists(path):
+                raise FileNotFoundError(
+                    f"MDF data file not found: {path}. Set sg_params.mdf_path or generate it "
+                    f"via mdf_construction.construct_mdf_insertion before enabling use_constraints."
+                )
+            _mdf_cache['data'] = _mdfmod.load_mdf_dict(path)
+        return _mdf_cache['data']
+
+    def _bind_biop_cfree(stream_name):
+        # Keypose-free CFreeMDF check; the inlined universal in BiOperation is compiled by
+        # universal_to_conditional. Do NOT set eager=True (it suppresses the move-aside skeleton).
+        stream_map[stream_name] = from_test(get_mdf_clear_test(_get_mdf_data(), safety_margin=mdf_safety_margin))
+        stream_info[stream_name] = StreamInfo(p_success=1e-1, verbose=verbose)
+
+    if enable_constraints:
+        stream_map['test-reachable'] = from_test(get_reachability_test(robot))
 
     ## Learned bimanual / unimanual skills (DMG).
     bi_kw = ['bi', 'bimanual']
@@ -501,6 +542,10 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
             name = spec.get("name")
             template = spec.get("template")
             if not name:
+                continue
+
+            if enable_constraints and template == "test-cfree-bioperation-pose":
+                _bind_biop_cfree(name)
                 continue
 
             if _bind_instantiated_imitate_stream(name, template, spec["skill"], spec):
