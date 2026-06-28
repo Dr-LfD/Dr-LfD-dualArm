@@ -7,3 +7,9 @@
 [submodule "examples/pybullet/aloha_real/openworld_aloha/grasp/gpd"]
 	path = examples/pybullet/aloha_real/openworld_aloha/grasp/gpd
 	url = https://github.com/anonymous/gpd-grasp-cpp.git
+[submodule "contact_detector"]
+	path = contact_detector
+	url = https://github.com/Dr-LfD/ContactPrediction.git
+[submodule "primitive_learning"]
+	path = primitive_learning
+	url = https://github.com/Dr-LfD/Equiv_primitive.git
