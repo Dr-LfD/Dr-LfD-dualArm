@@ -473,18 +473,6 @@ def _execute_bioperation(action, current_state, robot_entity, static_environment
     )
 
 
-def is_generic_pick_place_action(action):
-    return getattr(action, "name", "").lower() in {"pick", "place"}
-
-
-def contains_generic_pick_place_actions(actions):
-    if actions is None:
-        return False
-    if hasattr(actions, "name"):
-        actions = (actions,)
-    return any(is_generic_pick_place_action(action) for action in actions)
-
-
 def execute_schema_action(robot_entity, static_environment, action, current_state, collision_distance=-1):
     name = action.name.lower()
     if name.startswith("learnedpick"):

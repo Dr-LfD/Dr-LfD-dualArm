@@ -12,7 +12,7 @@ The pieces a new task needs:
    modeled on `two_arm_threading.yaml`.
 2. **Schema changes** — a `<task>_changes.json` describing per-skill contact-change
    edges (consumed by [Schema construction](Schema_construction.md)).
-3. **Checkpoints** — DP/SDP policy and equibot keypoint/operator checkpoints,
+3. **Checkpoints** — DP/SDP policy and equiv_primitive keypoint/operator checkpoints,
    referenced from the config (see [Configuration](Configuration.md)).
 4. **Run** — `interleaved_dmg_osc_plugin.py --task_name <task>`.
 

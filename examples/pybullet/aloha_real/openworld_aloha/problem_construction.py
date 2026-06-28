@@ -15,57 +15,11 @@ from pddlstream.language.generator import from_gen_fn, from_fn, from_test
 from pddlstream.language.stream import StreamInfo, PartialInputs
 from pddlstream.language.function import FunctionInfo
 
-import networkx as nx
 
 def get_fixed(robots, movable):
     rigid = [body for body in get_bodies() if body not in  robots]
     fixed = [body for body in rigid if body not in movable]
     return fixed
-
-def get_skillwise_literals(robot_entity, skillwise_sg_info, skill_name, perceived_objects):
-    # ## compatible for real_aloha
-    # if 'skill_type' not in skillwise_sg_info:
-    #     return [('DoneSkill', skill_name)]
-    
-    skill_type = skillwise_sg_info['skill_type']
-    if 'bimanual' in skill_type:
-        sg_nx = skillwise_sg_info['pre_sg']
-    elif skill_type == 'ATTACH':
-        sg_nx = skillwise_sg_info['cur_sg']
-    elif skill_type == 'DETACH':
-        sg_nx = skillwise_sg_info['pre_sg']
-    else:
-        raise NotImplementedError("Unknown skill type: ", skill_type)
-    
-    ## TODO: currently it is order-sensitive. Requrie to be specified in yaml
-    related_rbts = skillwise_sg_info['related_rbts']
-    ## find related objects from sg_nx
-
-    tgt_obj_literals = []
-    doneskill_literal_args = []
-    related_arm_names = [f"{ robot_entity.rbt_ids_to_side[rbt]}_arm" for rbt in related_rbts]
-    doneskill_literal_args.extend(related_arm_names)
-    for id,rbt in enumerate(related_rbts):
-        # # arm_name = related_arm_names[id]
-        # if skill_type == 'ATTACH': 
-        #     related_obj_name = skillwise_sg_info['related_objs'][id]
-        #     related_obj = [obj for obj in perceived_objects if obj.category == related_obj_name][0]
-
-        ## get objects that attached to left, right
-        obj_nbrs = set(nx.neighbors(sg_nx, rbt))
-        if len(obj_nbrs) ==0:
-            continue
-        inhand_obj_name = list(obj_nbrs - set(related_rbts))[0]
-        inhand_obj = [obj for obj in perceived_objects if obj.category == inhand_obj_name][0]
-        tgt_obj_literals.append(('tgt_obj', skill_name, inhand_obj))
-        doneskill_literal_args.append(inhand_obj)
-        
-        # ## else only append related_obj
-        # doneskill_literal_args.append(related_obj)
-
-    doneskill_literal = (f'DoneSkill{skill_type}', skill_name, *doneskill_literal_args)
-
-    return  [doneskill_literal], tgt_obj_literals
 
 def _schema_obj_to_body(obj):
     if obj is None:
@@ -149,9 +103,8 @@ def pddlstream_from_schema_problem(
         get_schema_metadata_from_data, compute_skill_names, build_action_schema_from_data,
     )
     robot_entity.reset()
-    # Per-task toggle (default off): emit reachability + MDF policy-safety constraints only
-    # for tasks that opt in via use_constraints (aloha real robot, mj-insertion-unsafe). DMG
-    # threading/assembly leave it off, so generated PDDL stays constraint-free.
+    # Per-task opt-in (default off): emit reachability + MDF safety constraints.
+    # DMG threading/assembly keep it off, so generated PDDL stays constraint-free.
     enable_constraints = kwargs.pop("use_constraints", False)
     perceived_objects = list(belief.estimated_objects)
     stackable = list(belief.known_surfaces)
@@ -181,10 +134,6 @@ def pddlstream_from_schema_problem(
             objects_dict=composed_objects_dict,
             enable_constraints=enable_constraints,
         )
-    # arm_names = schema_metadata["arm_names"]
-    # movable_names = schema_metadata["movable_names"]
-    # surface_names = schema_metadata["surface_names"]
-    # object_names = schema_metadata["object_names"]
     movable_names = [obj.category for obj in belief.estimated_objects]
     surface_names = [surf.category for surf in belief.known_surfaces]
     object_names = movable_names + surface_names
@@ -194,7 +143,6 @@ def pddlstream_from_schema_problem(
     side_to_rbt = getattr(robot_entity, "side_to_rbt_ids", None) or {}
     rbt_to_side = getattr(robot_entity, "rbt_ids_to_side", None) or {}
     schema_arm_to_group = {rbt: f"{side}_arm" for side, rbt in side_to_rbt.items()}
-    # constant_map = {"@base": "base", "@head": "head", "@torso": "torso"}
     constant_map = {}
 
     def resolve_schema_object(name):
@@ -230,7 +178,6 @@ def pddlstream_from_schema_problem(
     for group_key in robot_entity.groups:
         if group_key == "body" or group_key == "base":
             continue
-        # group_key = "base" if group == "body" else group
         if "gripper" in group_key or "robot" in group_key: ## only arm conf
             continue
         conf = init_confs[group_key]
@@ -240,11 +187,6 @@ def pddlstream_from_schema_problem(
 
     for k, v in schema_arm_to_group.items():
         init.append((k, v)) ## ('robot0', 'left_arm')
-
-    # for arm_schema in arm_names:
-    #     arm_group = schema_arm_to_group.get(arm_schema)
-    #     if arm_group is not None:
-    #         init.append((arm_schema, arm_group))
 
     for name in surface_names:
         if name not in schema_name_to_obj:
@@ -291,9 +233,7 @@ def pddlstream_from_schema_problem(
             if surf_pddl is surface and surface not in init_poses:
                 init_poses[surface] = RelativePose(surface, important=True, **kwargs)
             surf_pose = init_poses.get(surf_pddl) or init_poses.get(surface)
-            init.extend([("Stackable", pddl_obj, surf_pddl), Equal(("PlaceCost", pddl_obj, surf_pddl), 1),
-            #  ("Droppable", pddl_obj, surf_pddl), Equal(("DropCost", pddl_obj, surf_pddl), 1)
-            ])
+            init.extend([("Stackable", pddl_obj, surf_pddl), Equal(("PlaceCost", pddl_obj, surf_pddl), 1)])
             if pose and surf_pose and is_placement(body, surface):
                 init.append(("Supported", pddl_obj, pose, surf_pddl, surf_pose))
 
@@ -306,8 +246,8 @@ def pddlstream_from_schema_problem(
         if "LearnedBiKeyPose" in meta.get("matched_streams", []):
             init.append(("Skillbimanual", sk_name))
             if enable_constraints:
-                # SkillCheckObj for movable objects NOT manipulated by this skill: scopes the
-                # CFreeMDF policy-safety check to potential blocking obstacles only.
+                # SkillCheckObj on movables this skill does NOT manipulate: scopes the
+                # CFreeMDF check to potential blocking obstacles only.
                 involved = meta.get("involved_objects", set())
                 for mname in movable_names:
                     if mname in involved:
@@ -325,14 +265,12 @@ def pddlstream_from_schema_problem(
         if num_arms >= 2 and 'bimanual' not in sk:
             continue
         goal.append(("DoneSkill", sk))
-        
-    # # # # hardcode goals for screw-handoff-clean
-    # goal.append(('On', schema_name_to_obj['cup'], schema_name_to_obj['left_pad']))
-    # goal.append(('On', schema_name_to_obj['sponge'], schema_name_to_obj['right_pad']))
-    # goal.append(('Holding', schema_name_to_obj['screwdriver']))
-    
+
     table = stackable[0] if stackable else None
-    movable_list = [b for b in (_schema_obj_to_body(schema_name_to_obj.get(n)) for n in movable_names if n in schema_name_to_obj) if b is not None]
+    movable_list = [
+        body for n in movable_names
+        if n in schema_name_to_obj and (body := _schema_obj_to_body(schema_name_to_obj[n])) is not None
+    ]
     fixed_objects = get_fixed([robot_entity], movable_list)
     for name, pddl_obj in schema_name_to_obj.items():
         body = _schema_obj_to_body(pddl_obj)
@@ -343,9 +281,8 @@ def pddlstream_from_schema_problem(
             fixed_objects.remove(surf) ## estimated table will always collide with robot
 
 
-    # The DMG runner supplies equivSkill_info_dict via kwargs; schema planning
-    # cannot bind the learned (diffusion) streams without it. Pop the values we
-    # forward explicitly so they don't collide with **stream_kwargs below.
+    # Pop the explicitly-forwarded values so they don't collide with **stream_kwargs.
+    # equivSkill_info_dict (from the DMG runner) is required to bind the learned streams.
     stream_kwargs = dict(kwargs)
     equivSkill_info_dict = stream_kwargs.pop("equivSkill_info_dict", None)
     posegen_mode = stream_kwargs.pop("posegen_mode", "diffusion")
@@ -372,8 +309,7 @@ def pddlstream_from_schema_problem(
 def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp_mode="gpd", task_name = 'screwdriver', posegen_mode = 'diffusion',  verbose = False, equivSkill_info_dict = None, instantiated_streams=None, planning_mode="detailed", enable_constraints=False, **kwargs):
 
     schema_arm_to_group = kwargs.pop('schema_arm_to_group', None)
-    # MDF policy-safety config (only used when enable_constraints): path to the skill's
-    # swept-volume field + clearance margin.
+    # MDF safety config (only when enable_constraints): swept-volume field path + margin.
     mdf_path = kwargs.pop('mdf_path', None)
     mdf_safety_margin = kwargs.pop('mdf_safety_margin', 0.05)
     static_obstacles = list(obstacles)
@@ -391,21 +327,16 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
             return fn(*args, **kw)
         return wrapped
 
-    def _wrap_stream_fn(fn, map_arm=True):
-        if schema_arm_to_group is None:
-            return fn
-        return _unwrap_schema_args(fn, map_arm=map_arm)
-
     stream_map = {
         'test-cfree-pose-pose': from_test(get_test_cfree_pose_pose(**kwargs)),
         'test-cfree-pregrasp-pose': from_test(get_cfree_pregrasp_pose_test(robot)),
         'test-cfree-traj-pose': from_test(get_cfree_traj_pose_test(robot)),
 
         'sample-placement': from_gen_fn(get_placement_gen_fn(robot, obstacles, environment=obstacles, **kwargs)),
-        'plan-learned-pick': from_fn(_wrap_stream_fn(get_learned_pick_fn(robot, environment=static_obstacles, **kwargs))),
-        'plan-place': from_fn(_wrap_stream_fn(get_plan_place_fn(robot, environment=obstacles, **kwargs))),
-        'plan-drop': from_fn(_wrap_stream_fn(get_plan_drop_fn(robot, environment=obstacles, **kwargs))),
-        'plan-motion': from_fn(_wrap_stream_fn(get_plan_motion_fn(robot, environment=static_obstacles, algorithm = "rrt_star", **kwargs))),  #algorithm='lattice', algorithm = "rrt_star",
+        'plan-learned-pick': from_fn(_unwrap_schema_args(get_learned_pick_fn(robot, environment=static_obstacles, **kwargs))),
+        'plan-place': from_fn(_unwrap_schema_args(get_plan_place_fn(robot, environment=obstacles, **kwargs))),
+        'plan-drop': from_fn(_unwrap_schema_args(get_plan_drop_fn(robot, environment=obstacles, **kwargs))),
+        'plan-motion': from_fn(_unwrap_schema_args(get_plan_motion_fn(robot, environment=static_obstacles, algorithm = "rrt_star", **kwargs))),  #algorithm='lattice', algorithm = "rrt_star",
         'PoseCost': get_pose_cost_fn(robot, **kwargs),
     }
 
@@ -450,8 +381,8 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
         return _mdf_cache['data']
 
     def _bind_biop_cfree(stream_name):
-        # Keypose-free CFreeMDF check; the inlined universal in BiOperation is compiled by
-        # universal_to_conditional. Do NOT set eager=True (it suppresses the move-aside skeleton).
+        # Keypose-free CFreeMDF check (universal in BiOperation compiled by
+        # universal_to_conditional). Do NOT set eager=True — it suppresses the move-aside skeleton.
         stream_map[stream_name] = from_test(get_mdf_clear_test(_get_mdf_data(), safety_margin=mdf_safety_margin))
         stream_info[stream_name] = StreamInfo(p_success=1e-1, verbose=verbose)
 
@@ -471,31 +402,19 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
                 skill_kw = skill_name
             if skill_kw in bi_kw:
                 bi_skills.append(skill_name)
-                stream_map.update({
-                    # qpose and grasp learned from diffusion
-                    'sample-biop-keypose': from_gen_fn(get_imitate_traj_fn(
-                        robot, equivSkill_info_dict=equivSkill_info_dict, prefix_key=env_key,
-                        skill_name=skill_name, fixed_obj=static_obstacles, **kwargs)),
-                })
-                stream_info.update({
-                    'sample-biop-keypose': StreamInfo(overhead=5e1),
-                })
+                # qpose and grasp learned from diffusion
+                stream_map['sample-biop-keypose'] = from_gen_fn(get_imitate_traj_fn(
+                    robot, equivSkill_info_dict=equivSkill_info_dict, prefix_key=env_key,
+                    skill_name=skill_name, fixed_obj=static_obstacles, **kwargs))
+                stream_info['sample-biop-keypose'] = StreamInfo(overhead=5e1)
             elif skill_kw in uni_kw:
                 stream_mode = equivSkill_info_dict[env_key]['obj_centric_mode']
                 uni_skills.append(skill_name)
-                stream_map.update({
-                    f'sample-{skill_kw}-{stream_mode}': from_gen_fn(get_imitate_traj_fn(
-                        robot,
-                        equivSkill_info_dict=equivSkill_info_dict,
-                        prefix_key=env_key,
-                        skill_name=skill_name,
-                        fixed_obj=static_obstacles,
-                        **kwargs,
-                    )),
-                })
-                stream_info.update({
-                    f'sample-{skill_kw}-{stream_mode}': StreamInfo(overhead=1e1),
-                })
+                uni_stream_name = f'sample-{skill_kw}-{stream_mode}'
+                stream_map[uni_stream_name] = from_gen_fn(get_imitate_traj_fn(
+                    robot, equivSkill_info_dict=equivSkill_info_dict, prefix_key=env_key,
+                    skill_name=skill_name, fixed_obj=static_obstacles, **kwargs))
+                stream_info[uni_stream_name] = StreamInfo(overhead=1e1)
             else:
                 raise ValueError(f"Unknown skill type for skill {skill_name!r}")
 
@@ -529,33 +448,17 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
             stream_info[name] = StreamInfo(overhead=overhead)
         return True
 
-    # Alias per-skill instantiated stream names to the corresponding registered generators.
+    # Bind each instantiated stream from its explicit `template`; the spec carries
+    # everything the binder needs (no source-name guessing).
     if instantiated_streams:
-        grasp_sources = [k for k in stream_map if k.startswith("sample-grasp-") and not k[-1].isdigit()]
-        place_sources = [k for k in stream_map if k.startswith("sample-place-") and not k[-1].isdigit()]
-        template_to_source = {
-            "sample-grasp-traj": grasp_sources[0] if grasp_sources else None,
-            "sample-place-traj": place_sources[0] if place_sources else None,
-            "sample-biop-keypose": "sample-biop-keypose" if "sample-biop-keypose" in stream_map else None,
-        }
         for spec in instantiated_streams:
             name = spec.get("name")
-            template = spec.get("template")
             if not name:
                 continue
-
+            template = spec.get("template")
             if enable_constraints and template == "test-cfree-bioperation-pose":
                 _bind_biop_cfree(name)
-                continue
-
-            if _bind_instantiated_imitate_stream(name, template, spec["skill"], spec):
-                continue
-
-            source = template_to_source.get(template)
-            if not source or source not in stream_map:
-                continue
-            stream_map[name] = stream_map[source]
-            if source in stream_info:
-                stream_info[name] = stream_info[source]
+            else:
+                _bind_instantiated_imitate_stream(name, template, spec["skill"], spec)
 
     return stream_map, stream_info

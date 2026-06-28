@@ -81,7 +81,6 @@ from examples.pybullet.utils.pybullet_tools.ikfast.ikfast import (
     get_ik_joints,
     get_ik_fn,
 )
-# from grasp.utils import gpd_predict_grasps, graspnet_predict_grasps
 from examples.pybullet.aloha_real.openworld_aloha.estimation.geometry import trimesh_from_body
 from examples.pybullet.aloha_real.openworld_aloha.estimation.surfaces import z_plane
 from examples.pybullet.aloha_real.openworld_aloha.primitives import (
@@ -687,7 +686,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                 if in_hand is None:
                     raise ValueError(
                         f"ATTACH skill {sk}: model did not predict in_hand; "
-                        f"enable predict_in_hand=True in the equibot config"
+                        f"enable predict_in_hand=True in the equiv_primitive config"
                     )
                 flags = np.asarray(in_hand).reshape(-1)
                 if len(flags) != len(shifted_eef_traj):
@@ -1305,6 +1304,14 @@ def get_placement_gen_fn(
 
         aabb = surface_oobb.aabb
         aabb = buffer_aabb(aabb, buffer)
+
+        def reject_fn(x, y):
+            if obj.category in ('colObs', 'plunger'):
+                # reject unsafe scenarios for obstacle-like objects
+                return y < 0.2 or np.abs(x) > 0.1
+            # prefer non-center placements for everything else
+            return np.abs(x) < 0.05 and np.abs(y) < 0.05
+
         for top_pose in generate_stable_poses(obj):  # cycle
             pose = sample_placement_on_aabb(
                 obj,
@@ -1313,6 +1320,7 @@ def get_placement_gen_fn(
                 top_pose=top_pose,
                 percent=percent,
                 epsilon=z_epsilon,
+                reject_fn=reject_fn,
                 **kwargs
             )
             if pose is None:
@@ -1805,23 +1813,6 @@ def get_plan_motion_fn(
 
 
 #######################################################
-
-
-def get_similarGrasp_test(robot, **kwargs):
-    def test(arm, obj, grasp1, grasp2, sk1, sk2):
-        if grasp1.phase is None or grasp2.phase is None:
-            return False
-        # if grasp1.skill_name is None or grasp2.skill_name is None:
-        #     return False
-        
-        if grasp1.phase != grasp2.phase and sk1 != sk2:
-            return True
-        else:
-            return False
-    return test
-
-
-#######################################################
 # Reachability + MDF policy-safety constraints (ALOHA real robot).
 # These are only bound into the stream map when the per-task `use_constraints` flag is on
 # (see problem_construction); reachability additionally self-no-ops for non-aloha robots.
@@ -1844,15 +1835,6 @@ def get_reachability_test(robot, **kwargs):
     def test(arm, obj, pose, base_conf=None):
         return is_reachable(robot, arm, pose)
     return test
-
-
-# Lightweight per-run profiling for the MDF check (reset by the caller before each plan).
-MDF_CHECK_STATS = {'checks': 0, 'rejects': 0}
-
-
-def reset_mdf_check_stats():
-    MDF_CHECK_STATS['checks'] = 0
-    MDF_CHECK_STATS['rejects'] = 0
 
 
 def get_mdf_clear_test(mdf_data, safety_margin=0.05):
@@ -1885,10 +1867,6 @@ def get_mdf_clear_test(mdf_data, safety_margin=0.05):
             return True
         # object-frame points -> MDF world frame via the candidate world pose
         pts_now = (tform_from_pose(pose.get_pose()) @ homog.T).T[:, :3]
-        safe = query_mdf_safe(mdf_data, pts_now, safety_margin)
-        MDF_CHECK_STATS['checks'] += 1
-        if not safe:
-            MDF_CHECK_STATS['rejects'] += 1
-        return safe
+        return query_mdf_safe(mdf_data, pts_now, safety_margin)
 
     return test_fn

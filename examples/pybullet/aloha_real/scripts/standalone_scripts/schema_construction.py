@@ -1229,10 +1229,9 @@ def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_t
     if planning_mode == DETAILED_MODE:
         pre.append("(ImitateConf ?sk ?a1 ?q1) (ImitateConf ?sk ?a2 ?q2)")
         pre.append("(AtConf ?a1 ?q1) (AtConf ?a2 ?q2)")
-        pre.append("(GeomState ?sk ?lstate)")
     else:
         pre.append("(Conf ?a1 ?q1) (Conf ?a2 ?q2)")
-        pre.append("(GeomState ?sk ?lstate)")
+    pre.append("(GeomState ?sk ?lstate)")
 
     for name, var in obj_vars.items():
         pre.append(f"({name} {var})")

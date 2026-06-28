@@ -44,7 +44,7 @@ BACKGROUND = [FLOOR, TABLE_IDNUM]  # 0 - floor, 1 - table
 # TODO clean up constants
 INSTANCE_TEMPLATE = "instance_{}"
 DEFAULT_VALUE = (UNKNOWN, UNKNOWN)
-# DEFAULT_SAM3_PATH = os.path.expanduser("${WS_ROOT}/perception/sam3")
+# DEFAULT_SAM3_PATH = os.path.expanduser("${SAM3_ROOT}")
 
 YCB_CLASSES = [
     BG,

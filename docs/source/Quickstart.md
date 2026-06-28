@@ -7,7 +7,7 @@ real-robot route see [Real robot](Real_robot.md) (optional).
 
 - [Installation](Installation.md) complete: conda env `dr-lfd`, customized forks,
   Fast Downward and IKFast built.
-- The learned-policy sibling repos (Diffusion-Policy, equibot) cloned to the
+- The learned-policy sibling repos (Diffusion-Policy, equiv_primitive) cloned to the
   locations referenced by the task config (see [Configuration](Configuration.md)).
 - DMG / Diffusion-Policy checkpoints present at the paths the task config expects.
 

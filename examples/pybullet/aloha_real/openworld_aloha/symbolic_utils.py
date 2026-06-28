@@ -2,7 +2,6 @@ import os
 import sys
 import re
 from dataclasses import dataclass
-from collections import defaultdict, deque
 import numpy as np
 
 
@@ -232,46 +231,6 @@ def _arm_to_lane_name(arm_name):
     if 'right' in name or 'robot1' in name:
         return 'right'
     return None
-
-
-def split_actions_into_lanes_and_barriers(actions):
-    """Split plan actions into per-arm lanes and synchronization barriers.
-
-    bioperation_* actions are barriers; all other actions are classified by the
-    arm identifier in args[0].
-
-    Returns:
-        lanes: dict {"left": [...], "right": [...]}
-        barriers: list of barrier actions
-    """
-    lanes = {"left": [], "right": []}
-    barriers = []
-    for action in actions:
-        if action.name == 'perceive':
-            continue
-        if action.name.startswith('bioperation_'):
-            barriers.append(action)
-            continue
-        if not getattr(action, 'args', None):
-            barriers.append(action)
-            continue
-        lane = _arm_to_lane_name(action.args[0])
-        if lane in lanes:
-            lanes[lane].append(action)
-        else:
-            raise ValueError(f"Cannot classify action into lane: {action.name}, args={action.args}")
-    return lanes, barriers
-
-
-def action_requires_perception(action):
-    """Return True for actions that require a fresh observation before execution."""
-    name = action.name.lower()
-    return name in {"transit", "transfer"} or action_invalidates_perception(action)
-
-
-def scene_refresh_required(scene_perceived, actions):
-    """Return True when stale scene state must be refreshed before these actions."""
-    return (not scene_perceived) and any(action_requires_perception(action) for action in actions)
 
 
 def action_invalidates_perception(action):
@@ -536,27 +495,6 @@ def convert_plan_to_skeleton(plan_actions):
         (action.name, tuple(_to_skeleton_arg(arg) for arg in action.args))
         for action in plan_actions
     ]
-
-
-def extract_skeleton_segments(global_plan, replan_indices):
-    """
-    Split the global plan into per-segment skeletons at scheduler replan boundaries.
-
-    Args:
-        global_plan: list of Action(name, args) from solution.plan
-        replan_indices: list of post-boundary indices (last entry is -1 for end)
-
-    Returns:
-        list of skeleton lists, one per segment
-    """
-    segments = []
-    start = 0
-    for replan_idx in replan_indices:
-        end = len(global_plan) if replan_idx == -1 else replan_idx
-        segment_actions = global_plan[start:end]
-        segments.append(convert_plan_to_skeleton(segment_actions))
-        start = end
-    return segments
 
 
 def check_effect_achieved(skill_meta, sensor_data, env_type):

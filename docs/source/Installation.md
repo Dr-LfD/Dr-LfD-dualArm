@@ -74,12 +74,12 @@ git clone https://github.com/Dr-LfD/DP_customized.git <DIFFUSION_POLICY_ROOT>
 git clone https://github.com/Dr-LfD/equibot_abstract.git <PRIMITIVE_LEARNING_ROOT>
 # .env:
 export DIFFUSION_POLICY_ROOT=/abs/path/to/Diffusion-Policy
-export PRIMITIVE_LEARNING_ROOT=/abs/path/to/equibot_abstract
+export PRIMITIVE_LEARNING_ROOT=/abs/path/to/equiv_primitive_abstract
 ```
 
 The SDP variants (`*_sdp.yaml`) additionally use `${SPHERICAL_DP_ROOT}`.
 
-equibot's graph-network extensions are built against the torch+CUDA installed in
+equiv_primitive's graph-network extensions are built against the torch+CUDA installed in
 step 3:
 
 ```bash

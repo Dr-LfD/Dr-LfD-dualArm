@@ -16,7 +16,7 @@ Placeholders understood by :func:`load_yaml`:
 Each external dependency module has its own dedicated macro rather than a
 ``${WS_ROOT}/<module>`` sub-path, so a repo can live anywhere:
 
-* ``${PRIMITIVE_LEARNING_ROOT}``  -- equibot (object-centric primitive learning).
+* ``${PRIMITIVE_LEARNING_ROOT}``  -- equiv_primitive (object-centric primitive learning).
 * ``${DIFFUSION_POLICY_ROOT}``    -- Diffusion-Policy (visuomotor policies).
 * ``${SPHERICAL_DP_ROOT}``        -- Spherical Diffusion Policy.
 * ``${DEXMIMICGEN_ROOT}``         -- dexmimicgen (sim env / data).

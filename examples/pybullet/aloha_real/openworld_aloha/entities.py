@@ -43,7 +43,6 @@ from examples.pybullet.utils.pybullet_tools.utils import (
     add_body_name,
     child_link_from_joint,
     clone_body,
-    clone_body_revise,
     get_aabb,
     get_body_info,
     get_closest_points,
@@ -770,12 +769,14 @@ class Robot(Object):
         # TODO: infinite mass & move away
         # TODO: make a component class
         if group not in self.components:
-            component = clone_body_revise(
+            component = clone_body(
                 self.body,
                 links=self.get_group_subtree(group),
                 visual=False,
                 collision=True,
                 client=self.client,
+                joint_axis_overrides={b'finger': (0, 1, 0), b'ee_bar': (1, 0, 0)},
+                zero_base_inertial_orn=True,
             )
             if not visual:
                 set_all_color(component, TRANSPARENT)

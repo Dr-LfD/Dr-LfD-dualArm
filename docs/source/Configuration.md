@@ -16,7 +16,7 @@ Each external dependency **module** has its own dedicated macro (rather than a
 
 | Macro | Module |
 |---|---|
-| `${PRIMITIVE_LEARNING_ROOT}` | equibot (object-centric primitive learning) |
+| `${PRIMITIVE_LEARNING_ROOT}` | equiv_primitive (object-centric primitive learning) |
 | `${DIFFUSION_POLICY_ROOT}` | Diffusion-Policy (visuomotor policies + checkpoints) |
 | `${SPHERICAL_DP_ROOT}` | Spherical Diffusion Policy (SDP configs) |
 | `${DEXMIMICGEN_ROOT}` | dexmimicgen (sim env / data) |
@@ -48,12 +48,12 @@ Per-task configuration lives under
 
 - **Sibling-repo paths** — `DP_path` / `DP_dir` (`${DIFFUSION_POLICY_ROOT}`, or
   `${SPHERICAL_DP_ROOT}` in `*_sdp.yaml`), `primitive_learning_path`
-  (`${PRIMITIVE_LEARNING_ROOT}`, equibot), `env_dir` (`${DEXMIMICGEN_ROOT}`),
+  (`${PRIMITIVE_LEARNING_ROOT}`, equiv_primitive), `env_dir` (`${DEXMIMICGEN_ROOT}`),
   `contact_prediction_root` (`${CONTACT_PREDICTION_ROOT}`). Point each macro at
   your checkout in `.env` (see [Installation](Installation.md) step 5).
 - **`LfD_params`** — `lfd_alg` (`DP` or `SDP`), `env_type: dmg`, and `DP_input`
   (per-task checkpoint paths).
-- **`sg_params`** — learned-skill checkpoints: `equi_ckpt_name` (equibot grasp
+- **`sg_params`** — learned-skill checkpoints: `equi_ckpt_name` (equiv_primitive grasp
   keypoints), `biop_ckpt_name` (bimanual operator). Overridable at runtime with
   `--sg KEY=VALUE`.
 
@@ -64,7 +64,7 @@ Checkpoint locations are config-driven (`DP_input`, `equi_ckpt_name`,
 `data/outputs/<task>/` directory. Override per run without editing YAML:
 
 - `--dp_ckpt PATH` — Diffusion-Policy checkpoint.
-- `--sg equi_ckpt_name=PATH` — equibot keypoint checkpoint (and any other
+- `--sg equi_ckpt_name=PATH` — equiv_primitive keypoint checkpoint (and any other
   `sg_params` field).
 
 ## Environment variables (runtime)

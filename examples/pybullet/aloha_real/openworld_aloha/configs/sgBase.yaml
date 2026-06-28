@@ -13,8 +13,8 @@ temp_vis_dir: 'examples/pybullet/aloha_real/openworld_aloha/estimation/temp_vis/
 seg_branch: sam3
 contact_wrist_seg_backend: null
 
-sam_path: '${WS_ROOT}/Grounded-SAM-2/'
-sam3_path: '${WS_ROOT}/sam3'
+sam_path: '${GROUNDED_SAM2_ROOT}/'
+sam3_path: '${SAM3_ROOT}'
 sam3_worker_path: '${REPO_ROOT}/examples/pybullet/aloha_real/openworld_aloha/workers/sam3_worker.py'
 sam3_conda_env: 'sam3'
 sam3_model_dir: '${HOME}/.cache/modelscope/hub/models/facebook/sam3'
@@ -78,7 +78,7 @@ LfD_params:
   DP_scale: 4
   render_obs_keys: ['cam_left_wrist', 'cam_right_wrist']
   ## ACT params
-  ACT_path: '${WS_ROOT}/TAMP-ubuntu22/ALOHA/act' 
+  ACT_path: '${ACT_ROOT}'
 
 # existing_domain_path: "/tmp/pddlstream_aloha_debug/screw_handoff_clean_coarse_domain.pddl"
 # existing_stream_path: "/tmp/pddlstream_aloha_debug/screw_handoff_clean_coarse_stream.pddl"

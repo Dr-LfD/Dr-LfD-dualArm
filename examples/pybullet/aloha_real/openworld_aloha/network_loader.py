@@ -72,12 +72,12 @@ def categorize_skill(skill_name):
 def update_alohaMultiSkill_wrapper(para, skill_names, skillwise_sgs):
     """Load one Equibot policy wrapper per skill for the real ALOHA robot (trajectory mode).
 
-    Used by the real-robot plugin. The heavy ``equibot``/``hydra`` deps are imported lazily so
+    Used by the real-robot plugin. The heavy ``equiv_primitive``/``hydra`` deps are imported lazily so
     importing ``network_loader`` stays free of those packages.
     """
     primitive_learning_path = para['primitive_learning_path']
     sys.path.append(primitive_learning_path)
-    from equibot.policies.aloha_wrapper import pddl_wrapper
+    from equiv_primitive.policies.aloha_wrapper import pddl_wrapper
     from hydra import compose, initialize
     import hydra
     hydra.core.global_hydra.GlobalHydra.instance().clear()
@@ -111,7 +111,7 @@ def update_alohaMultiEquivSkill_wrapper(para, env_names, skillwise_sgs):
     """
     primitive_learning_path = para['primitive_learning_path']
     sys.path.append(primitive_learning_path)
-    from equibot.policies.aloha_wrapper import pddl_wrapper
+    from equiv_primitive.policies.aloha_wrapper import pddl_wrapper
     from hydra import compose, initialize
     import hydra
     hydra.core.global_hydra.GlobalHydra.instance().clear()
@@ -160,7 +160,7 @@ def update_equivSkill_wrapper(sg_params, para, get_sgs_from_hdf5_fn = None):
     #     sg_params = para['sg_params']
     primitive_learning_path = para['primitive_learning_path']
     sys.path.append(primitive_learning_path) 
-    from equibot.policies.aloha_wrapper import pddl_wrapper
+    from equiv_primitive.policies.aloha_wrapper import pddl_wrapper
     from hydra import compose, initialize
     import hydra
     hydra.core.global_hydra.GlobalHydra.instance().clear()

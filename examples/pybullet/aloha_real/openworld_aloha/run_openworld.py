@@ -4,31 +4,22 @@
 #     from pre_import import *
 
 
-import numpy as np
-import yaml
-import time
 import sys
 import os
 
 EXE_FOLDER = next(p for p in (os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), *([os.pardir] * k))) for k in range(16)) if os.path.isfile(os.path.join(p, '.repo_root')))
 sys.path.insert(0, EXE_FOLDER)
-
-
-
-sys.path.append(EXE_FOLDER) if EXE_FOLDER not in sys.path else None
 os.chdir(EXE_FOLDER)
 
-from examples.pybullet.aloha_real.openworld_aloha.open_world_utils import load_insertion_param, load_yaml_params, get_camera_mappings
+from examples.pybullet.aloha_real.openworld_aloha.open_world_utils import get_camera_mappings
 
 # CMD_PATH = os.path.join(EXE_FOLDER, '../statistics/cmd_logs/transfer_both_record.pkl') 
 
 from pddlstream.algorithms.algorithm import reset_globals
 from pddlstream.algorithms.serialized import solve_all_goals, solve_next_goal
-from pddlstream.algorithms.meta import solve, create_parser
-from pddlstream.algorithms.downward import apply_action, conditions_hold, fd_from_fact, fact_from_fd
-from examples.pybullet.utils.pybullet_tools.utils import wait_for_user, WorldSaver, connect, LockRenderer, CLIENT, Pose, Euler, Point, disconnect,disconnect_all,remove_all_debug
-from pddlstream.utils import read, INF, get_file_path, find_unique, Profiler, str_from_object, negate_test, read_pickle, write_pickle
-from pddlstream.language.constants import print_solution, PDDLProblem, Solution, And
+from examples.pybullet.utils.pybullet_tools.utils import wait_for_user, WorldSaver, connect, LockRenderer, CLIENT, disconnect_all, remove_all_debug
+from pddlstream.utils import INF, Profiler, str_from_object
+from pddlstream.language.constants import print_solution, Solution
 
 
 from examples.pybullet.aloha_real.openworld_aloha.problem_construction import (
@@ -40,7 +31,6 @@ from examples.pybullet.aloha_real.openworld_aloha.policy_simp import estimation_
 from examples.pybullet.aloha_real.openworld_aloha.openworld_streams import TELEPORT
 
 from examples.pybullet.aloha_real.openworld_aloha.entities import Object
-from examples.pybullet.aloha_real.openworld_aloha.robot_entities import ALOHARobot, DUALfrankaRobot
 
 from examples.pybullet.aloha_real.openworld_aloha.symbolic_utils import update_problem, simulate_plan_execution
 from examples.pybullet.aloha_real.openworld_aloha.schema_executor import (
@@ -153,111 +143,25 @@ def prepare_world(para, env_type = "sim", obj_info_ls = [], mj_pc_dict = None, e
     return robot_entity, belief, estimator
 
 
-def compute_TAMP_online(para, robot_entity, belief, teleport = False, **kwargs):
+def _plan_schema_problem(para, robot_entity, belief, *, use_perceived, planning_mode,
+                         teleport, real_time_render=True, **kwargs):
+    """Build a schema PDDLStream problem, solve it, and map plan args to arm groups.
 
-    real_time_render = True
-    pybullet_use_gui = para['use_gui']
-    prev_teleport = TELEPORT[0]
-    TELEPORT[0] = True
-
-    try:
-        skill_yaml_paths = para.get('skill_yaml_paths') or []
-        skill_yaml_paths = [
-            p if os.path.isabs(p) else os.path.join(EXE_FOLDER, p)
-            for p in skill_yaml_paths
-        ]
-        tmp_pddl_dir = para.get('schema_tmp_pddl_dir')
-        if tmp_pddl_dir and not os.path.isabs(tmp_pddl_dir):
-            tmp_pddl_dir = os.path.join(EXE_FOLDER, tmp_pddl_dir)
-        if not (para.get('use_schema') and skill_yaml_paths):
-            raise ValueError(
-                "Schema planning is required: set use_schema=true and provide skill_yaml_paths"
-            )
-        problem, stream_info = pddlstream_from_schema_problem(
-            robot_entity, belief,
-            skill_yaml_paths=skill_yaml_paths,
-            tmp_pddl_dir=tmp_pddl_dir,
-            object_mapping=para.get('object_mapping'),
-            match_by_category=para.get('match_by_category', True),
-            use_perceived=para.get('use_perceived', True),
-            planning_mode="coarse",
-            use_constraints=para.get('use_constraints', False),
-            teleport=teleport, real_time_render=real_time_render, client=CLIENT, **kwargs
-        )
-        
-        _, _, _, stream_map, init, goal = problem
-        print('Init:', init)
-        print('Goal:', goal)
-        print('Streams:', str_from_object(set(stream_map)))
-
-        saver = WorldSaver()
-
-        solution = plan_pddlstream_restart(
-            problem,
-            real_time_render=real_time_render,
-            stream_info=stream_info,
-            saver=saver,
-            **kwargs,
-        )
-
-        plan, cost, evaluations, action_instances = solution
-        if para.get('use_schema') and hasattr(robot_entity, 'get_arm_group'):
-            plan = map_schema_plan_args(plan, robot_entity)
-            solution = Solution(plan, cost, evaluations, action_instances)
-        
-        if plan is None:
-            print("No plan to simulate")
-            return None, None, problem, stream_info
-        
-        print(f"Simulating plan with {len(plan)} actions")
-        initial_state = problem.init
-        action_plan = plan
-        preimage_facts = solution.certificate.preimage_facts 
-        state_history = simulate_plan_execution( initial_state, action_plan, action_instances, preimage_facts)
-
-        sequence = post_process(plan)
-                    
-        if pybullet_use_gui:
-            wait_for_user('Execute?')
-
-            ## remove grippers in graspgen
-            robot_entity.remove_components()
-
-            execute_command(sequence, teleport=False, client=CLIENT, record_refined = True)
-
-            wait_for_user('Finish?')
-        return (
-            solution,
-            state_history,
-            problem,
-            stream_info,
-        )
-    finally:
-        TELEPORT[0] = prev_teleport
-
-
-def compute_TAMP_cmd(para, robot_entity, belief, teleport=False, **kwargs):
-    """Schema-mode TAMP returning a post-processed command ``Sequence`` for real-robot execution.
-
-    Consumed by the real-robot ROS plugin; schema planning is mandatory.
+    Returns ``(problem, stream_info, solution)`` where ``solution.plan`` has been
+    rewritten by :func:`map_schema_plan_args`. Raises if schema planning is not
+    configured (``use_schema`` unset or no ``skill_yaml_paths``).
     """
-    real_time_render = True
-    teleport = para['teleport']
-    pybullet_use_gui = para['use_gui']
-
-    skill_yaml_paths = para.get('skill_yaml_paths') or []
     skill_yaml_paths = [
         p if os.path.isabs(p) else os.path.join(EXE_FOLDER, p)
-        for p in skill_yaml_paths
+        for p in (para.get('skill_yaml_paths') or [])
     ]
-    tmp_pddl_dir = para.get('schema_tmp_pddl_dir')
-    if tmp_pddl_dir and not os.path.isabs(tmp_pddl_dir):
-        tmp_pddl_dir = os.path.join(EXE_FOLDER, tmp_pddl_dir)
-    planning_mode = kwargs.pop('planning_mode', None) or para.get('planning_mode', 'detailed')
     if not (para.get('use_schema') and skill_yaml_paths):
         raise ValueError(
             "Schema planning is required: set use_schema=true and provide skill_yaml_paths"
         )
+    tmp_pddl_dir = para.get('schema_tmp_pddl_dir')
+    if tmp_pddl_dir and not os.path.isabs(tmp_pddl_dir):
+        tmp_pddl_dir = os.path.join(EXE_FOLDER, tmp_pddl_dir)
 
     problem, stream_info = pddlstream_from_schema_problem(
         robot_entity, belief,
@@ -265,10 +169,10 @@ def compute_TAMP_cmd(para, robot_entity, belief, teleport=False, **kwargs):
         tmp_pddl_dir=tmp_pddl_dir,
         object_mapping=para.get('object_mapping'),
         match_by_category=para.get('match_by_category', True),
-        use_perceived=para.get('use_perceived', False),
+        use_perceived=use_perceived,
         planning_mode=planning_mode,
         use_constraints=para.get('use_constraints', False),
-        teleport=teleport, real_time_render=real_time_render, client=CLIENT, **kwargs
+        teleport=teleport, real_time_render=real_time_render, client=CLIENT, **kwargs,
     )
 
     _, _, _, stream_map, init, goal = problem
@@ -281,18 +185,67 @@ def compute_TAMP_cmd(para, robot_entity, belief, teleport=False, **kwargs):
         problem, real_time_render=real_time_render,
         stream_info=stream_info, saver=saver, **kwargs,
     )
-    plan, cost, evaluations, _ = solution
-
-    if para.get('use_schema') and hasattr(robot_entity, 'get_arm_group'):
+    plan, cost, certificate, action_instances = solution
+    if hasattr(robot_entity, 'get_arm_group'):
         plan = map_schema_plan_args(plan, robot_entity)
-    sequence = post_process(plan)
+    return problem, stream_info, Solution(plan, cost, certificate, action_instances)
 
-    if pybullet_use_gui:
-        wait_for_user('Execute?')
-        # remove grippers spawned by grasp generation before executing
-        robot_entity.remove_components()
-        execute_command(sequence, teleport=False, client=CLIENT, record_refined=True)
-        wait_for_user('Finish?')
+
+def _gui_execute(sequence, robot_entity):
+    """Interactive GUI execution: prompt, drop grasp-gen grippers, run, prompt."""
+    wait_for_user('Execute?')
+    robot_entity.remove_components()  # drop grippers spawned by grasp generation
+    execute_command(sequence, teleport=False, client=CLIENT, record_refined=True)
+    wait_for_user('Finish?')
+
+
+def compute_TAMP_online(para, robot_entity, belief, teleport=False, **kwargs):
+    prev_teleport = TELEPORT[0]
+    TELEPORT[0] = True
+    try:
+        problem, stream_info, solution = _plan_schema_problem(
+            para, robot_entity, belief,
+            use_perceived=para.get('use_perceived', True),
+            planning_mode="coarse",
+            teleport=teleport, **kwargs,
+        )
+        plan, _, certificate, action_instances = solution
+        if plan is None:
+            print("No plan to simulate")
+            return None, None, problem, stream_info
+
+        print(f"Simulating plan with {len(plan)} actions")
+        state_history = simulate_plan_execution(
+            problem.init, plan, action_instances, certificate.preimage_facts
+        )
+
+        sequence = post_process(plan)
+        if para['use_gui']:
+            _gui_execute(sequence, robot_entity)
+        return solution, state_history, problem, stream_info
+    finally:
+        TELEPORT[0] = prev_teleport
+
+
+def compute_TAMP_cmd(para, robot_entity, belief, teleport=False, **kwargs):
+    """Schema-mode TAMP returning a post-processed command ``Sequence`` for real-robot execution.
+
+    Consumed by the real-robot ROS plugin; schema planning is mandatory. Unlike
+    :func:`compute_TAMP_online` (which forces ``planning_mode="coarse"`` for the
+    interleaved online loop), this offline command path lets the caller choose the
+    planning mode, defaulting to ``"detailed"``.
+    """
+    planning_mode = kwargs.pop('planning_mode', None) or para.get('planning_mode', 'detailed')
+    _, _, solution = _plan_schema_problem(
+        para, robot_entity, belief,
+        use_perceived=para.get('use_perceived', False),
+        planning_mode=planning_mode,
+        teleport=para['teleport'], **kwargs,
+    )
+
+    sequence = post_process(solution.plan)
+    if para['use_gui']:
+        _gui_execute(sequence, robot_entity)
     return sequence
 
 
@@ -330,13 +283,7 @@ def plan_detail_mp(para, robot_entity, problem, stream_info, current_state, subg
     sequence_seg = post_process(plan_seg, robot_entity=robot_entity)
 
     if pybullet_use_gui:
-        ans = wait_for_user('Execute?')
-        ## remove grippers in graspgen
-        robot_entity.remove_components()
-
-        aborted = execute_command(sequence_seg, teleport=False, client=CLIENT, record_refined = True)
-
-        ans = wait_for_user('Finish?')
+        _gui_execute(sequence_seg, robot_entity)
 
     # Schema-executor expansion: same path as _plan_lane_batch, authoritative for real execution.
     if static_environment is not None:

@@ -43,7 +43,7 @@ _POLICY_ARM_PREFIXES = (
 
 
 def policy_skill_name(skill_name):
-    """Map PDDL/schema skill names to equibot checkpoint embedding keys."""
+    """Map PDDL/schema skill names to equiv_primitive checkpoint embedding keys."""
     for prefix in _POLICY_ARM_PREFIXES:
         if skill_name.startswith(prefix):
             return skill_name[len(prefix):]
