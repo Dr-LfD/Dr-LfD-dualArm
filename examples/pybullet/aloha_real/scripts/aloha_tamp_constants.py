@@ -98,6 +98,15 @@ RIGHT_BASE_POSE = np.array(
      [ 0.0, 0.0, 0.0, 1.0]]
 )
 
+### Reachability map (replaces the legacy ad-hoc left/right x-split heuristic).
+### Compact coverage artifact built once by reachabilitymap/tools/export_aloha_coverage.py;
+### queried position-only by openworld_aloha/reachability_query.py (numpy-only).
+REACH_MAP_ARTIFACT = str(
+    pathlib.Path(__file__).parent.parent.resolve()
+    / "assets" / "reachability" / "aloha_reach_coverage.npz"
+)
+REACH_COVERAGE_THRESHOLD = 0.22  # Global coverage cutoff for position-only IsReachable.
+
 ### Judgement thresholds
 GRIPPER_EPSILON = 0.2
 EE_VEL_EPSILONE = 0.03

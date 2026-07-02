@@ -104,7 +104,10 @@ from examples.pybullet.aloha_real.openworld_aloha.aloha_samplers import (
 
 )
 
-from examples.pybullet.aloha_real.scripts.aloha_tamp_constants import trans2eepose, xyzquat2trans
+from examples.pybullet.aloha_real.scripts.aloha_tamp_constants import (
+    trans2eepose, xyzquat2trans, REACH_MAP_ARTIFACT, REACH_COVERAGE_THRESHOLD,
+)
+from examples.pybullet.aloha_real.openworld_aloha.reachability_query import get_reachability
 
 
 from examples.pybullet.aloha_real.openworld_aloha.stacking import slice_mesh
@@ -1819,21 +1822,25 @@ def get_plan_motion_fn(
 #######################################################
 
 
-def is_reachable(robot, arm, pose):
-    """Heuristic reachability for ALOHA: an arm cannot reach across the table midline
-    (x beyond +/-2 cm into the other arm's half). Inert for non-aloha robots."""
-    world_pose = pose.get_pose()
-    if 'aloha' in robot.name:
-        if world_pose[0][0] > 0.02 and 'left' in arm:
-            return False
-        if world_pose[0][0] < -0.02 and 'right' in arm:
-            return False
-    return True
+def is_reachable(robot, arm, pose, oracle):
+    """Position-only reachability from the precomputed ALOHA coverage map. ``oracle`` is
+    None for robots without a map (non-aloha), for which every pose is reachable."""
+    if oracle is None:
+        return True
+    side = robot.side_from_arm(arm)
+    world_point = point_from_pose(pose.get_pose())
+    return oracle.reachable(side, world_point)
 
 
 def get_reachability_test(robot, **kwargs):
+    # Resolve the coverage-map oracle once per problem (cached loader); the test is then
+    # evaluated per (arm, obj, pose) without re-loading the map. Non-aloha robots get no
+    # oracle and are always reachable.
+    oracle = (get_reachability(REACH_MAP_ARTIFACT, REACH_COVERAGE_THRESHOLD)
+              if 'aloha' in robot.name else None)
+
     def test(arm, obj, pose, base_conf=None):
-        return is_reachable(robot, arm, pose)
+        return is_reachable(robot, arm, pose, oracle)
     return test
 
 
