@@ -64,17 +64,24 @@ rm -rf "${SITE}/robosuite"
 
 ## 5. Learned-policy sibling repos
 
+The object-centric primitive-learning repo (`primitive_learning`) ships as a
+submodule of the release umbrella — initialize it from the umbrella checkout:
+
+```bash
+git submodule update --init primitive_learning
+```
+
 The DMG / Diffusion-Policy skills are imported from sibling repos (added to
 `sys.path` at runtime, not pip-installed). Each is located by its own macro set
-in `.env` (see [Configuration](Configuration.md)) — clone anywhere, then point
-the macro at it:
+in `.env` (see [Configuration](Configuration.md)). For a development checkout or
+a local override, clone anywhere and point the macro at it:
 
 ```bash
 git clone https://github.com/Dr-LfD/DP_customized.git <DIFFUSION_POLICY_ROOT>
-git clone https://github.com/Dr-LfD/equibot_abstract.git <PRIMITIVE_LEARNING_ROOT>
+git clone https://github.com/Dr-LfD/Equiv_primitive.git <PRIMITIVE_LEARNING_ROOT>
 # .env:
 export DIFFUSION_POLICY_ROOT=/abs/path/to/Diffusion-Policy
-export PRIMITIVE_LEARNING_ROOT=/abs/path/to/equiv_primitive_abstract
+export PRIMITIVE_LEARNING_ROOT=/abs/path/to/Equiv_primitive
 ```
 
 The SDP variants (`*_sdp.yaml`) additionally use `${SPHERICAL_DP_ROOT}`.
