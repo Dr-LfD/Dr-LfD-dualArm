@@ -53,10 +53,10 @@ Each run records a video under `lfd_tamp_vids/` and prints
 `Execution results: {... 'task_success': True/False ...}`. See
 [Quickstart](docs/source/Quickstart.md) for prerequisites and troubleshooting.
 
-## Release checklist
+## TODO
 
 - [x] TAMP for DMG simulation
-- [x] TAMP for real ALOHA robot (constraint check + contact detection)
-- [x] Object-centric primitive learning
-- [x] Contact detector
+- [ ] TAMP for real ALOHA robot (constraint check + contact detection)
 - [ ] Policy learning
+- [ ] Object-centric primitive learning
+- [ ] Contact detector

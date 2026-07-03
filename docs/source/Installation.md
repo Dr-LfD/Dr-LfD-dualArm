@@ -16,43 +16,40 @@ cd Dr-LfD-dualArm
 git submodule update --init --recursive
 ```
 
-## 2. Create the conda environment
+## 2. Create the conda environment and install PyTorch (CUDA 12.1)
+
+Ensure CUDA 12.1 or above is available (`nvcc -V`). Install the torch stack
+**before** the next step, so the git-installed forks in `requirements.txt`
+resolve against this CUDA build rather than a default PyPI wheel:
 
 ```bash
 conda create -n dr-lfd python=3.9
 conda activate dr-lfd
-pip install -r requirements.txt
-```
-
-## 3. PyTorch (CUDA 12.1) and geometry extensions
-
-Ensure CUDA 12.1 or above is available (`nvcc -V`), then install the torch stack
-and its compiled extensions (kept out of `requirements.txt` because they must
-match your CUDA build):
-
-```bash
 pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
     --index-url https://download.pytorch.org/whl/cu121
+```
+
+## 3. Python dependencies (incl. customized robosuite / robomimic forks)
+
+`requirements.txt` pins the PyPI runtime deps and git-installs the customized
+robosuite (`switchable`) and robomimic (`pc`) forks. Then build pytorch3d against
+the torch+CUDA installed above:
+
+```bash
+pip install -r requirements.txt
 pip install "git+https://github.com/facebookresearch/pytorch3d.git"
 ```
 
-## 4. Customized forks
+## 4. dexmimicgen fork
 
-The simulation route depends on customized forks of robosuite, dexmimicgen, and
-robomimic. Clone them under `${WS_ROOT}` and install editable:
+robosuite and robomimic are git-installed by `requirements.txt` (step 3).
+dexmimicgen is the exception — its task configs read scene-graph data through
+`env_dir=${DEXMIMICGEN_ROOT}`, so it must live on disk at that path rather than
+in site-packages:
 
 ```bash
-# robosuite 1.5.1 (switchable branch)
-git clone https://github.com/Dr-LfD/robosuite_costomized.git -b switchable ${WS_ROOT}/robosuite
-pip install -e ${WS_ROOT}/robosuite
-
-# dexmimicgen  (clone to ${DEXMIMICGEN_ROOT}; configs reference it via env_dir)
-git clone https://github.com/Dr-LfD/dexmimicgen -b playback_3d ${DEXMIMICGEN_ROOT}
+git clone https://github.com/JINXER000/dexmimicgen -b playback_3d ${DEXMIMICGEN_ROOT}
 pip install -e ${DEXMIMICGEN_ROOT}
-
-# robomimic
-git clone https://github.com/Dr-LfD/robomimic-customized.git -b pc ${WS_ROOT}/robomimic
-pip install -e ${WS_ROOT}/robomimic
 ```
 
 If a stale `robosuite` is shadowing the editable install, remove it first:

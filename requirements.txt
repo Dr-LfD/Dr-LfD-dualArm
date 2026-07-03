@@ -1,0 +1,65 @@
+# DR-LfD simulation route -- PyPI runtime dependencies.
+# Versions pinned to the verified working environment (Python 3.9).
+#
+#   conda create -n dr-lfd python=3.9 && conda activate dr-lfd
+#   pip install -r requirements.txt
+#
+# The customized robosuite / robomimic forks are git-installed at the bottom of
+# this file (see "customized simulation forks"). Install the torch stack FIRST
+# (next block) so those forks resolve against the CUDA build, not a PyPI wheel.
+#
+# NOT listed here (installed separately, see docs/source/Installation.md):
+#   * torch / torchvision / torchaudio   -- CUDA 12.1 wheels (--index-url); install BEFORE this file
+#   * pytorch3d, torch-scatter/cluster/geometric  -- built against the torch+CUDA above
+#   * dexmimicgen fork                   -- cloned to ${DEXMIMICGEN_ROOT}, NOT git-installed:
+#                                           its task configs read scene-graph data via
+#                                           env_dir=${DEXMIMICGEN_ROOT}, which needs the on-disk tree
+#   * Diffusion-Policy and equibot       -- sibling repos referenced via their own macros
+#   * SAM / Grounded-SAM segmentation    -- real-robot only, see docs/source/Real_robot.md
+
+# --- core numerics ---
+numpy==1.23.0
+scipy==1.9.1
+scikit-learn==1.6.1
+numba==0.56.4
+
+# --- config / IO ---
+easydict==1.13
+PyYAML==6.0.3
+omegaconf==2.2.3
+hydra-core==1.2.0
+h5py==3.12.1
+zarr==2.12.0
+networkx==3.2.1
+
+# --- geometry / meshes / point clouds ---
+trimesh==4.7.1
+open3d==0.19.0
+
+# --- simulation backend ---
+mujoco==3.3.4
+
+# --- imaging / video / plotting ---
+opencv-python==4.6.0
+imageio==2.36.1
+pillow==11.3.0
+matplotlib==3.6.1
+av==10.0.0
+
+# --- learned-policy stack (Diffusion-Policy / equibot) ---
+diffusers==0.30.0
+huggingface-hub==0.34.1
+einops==0.4.1
+e3nn==0.5.6
+escnn==1.0.11
+
+# --- misc ---
+termcolor==2.5.0
+tqdm==4.67.3
+
+# --- customized simulation forks (git-installed; require the torch stack above) ---
+# robosuite 1.5.1 fork: switchable composite controller + depth/seg->pointcloud tooling.
+robosuite @ git+https://github.com/JINXER000/robosuite_costomized.git@switchable
+# robomimic fork: point-cloud / instance-segmentation observations (pulls torch — hence
+# the torch stack must already be installed, or pip will fetch a non-CUDA wheel).
+robomimic @ git+https://github.com/JINXER000/robomimic-customized.git@pc

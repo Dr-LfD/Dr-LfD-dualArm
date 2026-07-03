@@ -23,6 +23,7 @@ pkl_logs
 *.ply
 *.pcd
 *.txt
+!requirements.txt
 *.dot
 hdf5_out
 *.mp4
@@ -42,3 +43,4 @@ ref_doc/*
 *.csv
 # Local-only schema-construction golden test + fixtures (not tracked)
 examples/pybullet/aloha_real/openworld_aloha/tests/
+ckpt
