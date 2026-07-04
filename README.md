@@ -56,7 +56,7 @@ Each run records a video under `lfd_tamp_vids/` and prints
 ## TODO
 
 - [x] TAMP for DMG simulation
-- [ ] TAMP for real ALOHA robot (constraint check + contact detection)
+- [x] TAMP for real ALOHA robot (constraint check + contact detection)
 - [ ] Policy learning
-- [ ] Object-centric primitive learning
-- [ ] Contact detector
+- [x] Object-centric primitive learning
+- [x] Contact detector

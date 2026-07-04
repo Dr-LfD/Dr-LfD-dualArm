@@ -42,5 +42,5 @@ ref_doc/*
 *.tsv
 *.csv
 # Local-only schema-construction golden test + fixtures (not tracked)
-examples/pybullet/aloha_real/openworld_aloha/tests/
+examples/pybullet/aloha_real/openworld_aloha/tests
 ckpt
