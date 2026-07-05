@@ -11,6 +11,15 @@ from examples.pybullet.aloha_real.openworld_aloha.primitives import GroupTraject
 from examples.pybullet.aloha_real.openworld_aloha.run_openworld import (
     compute_TAMP_cmd,
     compute_TAMP_online,
+    plan_detail_mp,
+)
+from examples.pybullet.aloha_real.openworld_aloha.schema_executor import (
+    execute_schema_skeleton_plan,
+    materialize_ref_goal_result,
+)
+from examples.pybullet.aloha_real.openworld_aloha.symbolic_utils import (
+    get_barrier_action_subgoal,
+    get_contact_action_subgoal,
 )
 
 
@@ -89,17 +98,6 @@ class PlanningSession:
     stream_info: Any = None
 
 
-@dataclass(frozen=True)
-class ExecutionRequest:
-    sequence: Sequence
-    stop_mode: str
-
-
-@dataclass(frozen=True)
-class ExecutionResult:
-    status: str
-
-
 def preserve_arm_confs(base_state, updated_state, arms, search_facts_fn):
     preserved_state = set(updated_state)
     for arm in arms:
@@ -110,13 +108,29 @@ def preserve_arm_confs(base_state, updated_state, arms, search_facts_fn):
     return preserved_state
 
 
-def rollback_batch_execution(updated_state, execution_result):
-    if execution_result is None:
-        return set(updated_state)
-    rolled_back = set(updated_state)
-    rolled_back -= set(getattr(execution_result, "added_facts", ()))
-    rolled_back |= set(getattr(execution_result, "removed_facts", ()))
-    return rolled_back
+def state_delta(base_state, updated_state):
+    """Facts (removed, added) between *base_state* and *updated_state*."""
+    base, updated = set(base_state), set(updated_state)
+    return base - updated, updated - base
+
+
+def apply_state_delta(state, removed_facts, added_facts):
+    """Apply a (removed, added) delta to *state*."""
+    return (set(state) - set(removed_facts)) | set(added_facts)
+
+
+def revert_effects(state, *, added_facts, removed_facts):
+    """Undo one unit's symbolic effect: subtract what it added, restore what it removed."""
+    return (set(state) - set(added_facts)) | set(removed_facts)
+
+
+def merge_lane_states(base_state, lane_states):
+    """Fold each lane's delta-from-base back onto *base_state*."""
+    merged = set(base_state)
+    for lane_state in lane_states:
+        removed, added = state_delta(base_state, lane_state)
+        merged = apply_state_delta(merged, removed, added)
+    return merged
 
 
 def get_action_target_object(action):
@@ -132,24 +146,6 @@ def get_batch_target_object(batch):
     if not batch.actions:
         return None
     return get_action_target_object(batch.actions[-1])
-
-
-def build_lane_checks(batches, subgoals, get_target_object_fn=None):
-    target_fn = get_target_object_fn if get_target_object_fn is not None else get_batch_target_object
-    lane_checks = {}
-    for lane, batch in batches.items():
-        lane_subgoal = subgoals.get(lane)
-        if not lane_subgoal:
-            continue
-        lane_checks[lane] = {
-            'subgoal': list(lane_subgoal),
-            'target_obj': target_fn(batch),
-        }
-    return lane_checks
-
-
-def merge_batch_sequences(sequences):
-    return Sequence([cmd for seq in sequences for cmd in seq.commands])
 
 
 def plan_offline_sequence(para, robot_entity, belief, **kwargs):
@@ -184,20 +180,60 @@ def plan_online_session(para, robot_entity, belief, **kwargs):
     )
 
 
-def infer_stop_mode(sequence):
-    return "bc" if getattr(sequence, 'graphstate_markers', ()) else "replan"
+def plan_lane_batch_schema(para, robot_entity, static_environment, batch,
+                           planning_state, base_state, tamp_kwargs):
+    """Schema fast-path: expand a lane batch into an executable Sequence.
 
-
-def execute_request(executor, request):
-    return ExecutionResult(
-        status=executor(request.sequence, stop_mode=request.stop_mode)
+    Returns ``(sequence, final_state, subgoal, result)``; ``(None, base_state,
+    subgoal, None)`` when schema expansion fails.
+    """
+    subgoal = get_contact_action_subgoal(batch.ref_goal_state, batch.actions)
+    result = execute_schema_skeleton_plan(
+        para, robot_entity, static_environment,
+        batch.actions, planning_state, **tamp_kwargs,
     )
+    if result is None:
+        return None, base_state, subgoal, None
+    return result.sequence, set(result.final_state), subgoal, result
 
 
-def build_output_info(task_name, task_success, duration_tamp, recording_path):
-    return {
-        "recording_path": recording_path,
-        "task_success": task_success,
-        "duration_tamp": duration_tamp,
-        "task_name": task_name,
-    }
+def replan_subgoal_detail_mp(para, robot_entity, problem, stream_info, static_environment,
+                             subgoal, planning_state, base_state, tamp_kwargs,
+                             *, batch=None, skeleton_segment=None, label=None):
+    """Detail-MP fallback for a subgoal; mutates ``batch.actions`` in place on success.
+
+    ``skeleton_segment`` constrains the solve (DMG passes one, the real route
+    passes ``None``). Returns the standard 4-tuple; ``(None, base_state, subgoal,
+    None)`` on failure.
+    """
+    if label is not None:
+        print(f'[online_tamp] {label} schema planning failed, retrying with detail MP')
+    seq, updated_state, plan_seg = plan_detail_mp(
+        para, robot_entity, problem, stream_info, planning_state, subgoal,
+        static_environment=static_environment, skeleton_segment=skeleton_segment,
+        **tamp_kwargs,
+    )
+    if seq is None:
+        return None, base_state, subgoal, None
+    if batch is not None and plan_seg is not None:
+        batch.actions = list(plan_seg)
+    return seq, set(updated_state), subgoal, None
+
+
+def plan_barrier_schema(para, robot_entity, static_environment, barrier,
+                        planning_state, base_state, tamp_kwargs):
+    """Schema fast-path for a bimanual barrier; materialize its effect onto *base_state*."""
+    subgoal = get_barrier_action_subgoal(barrier.ref_goal_state, barrier.action)
+    result = execute_schema_skeleton_plan(
+        para, robot_entity, static_environment,
+        [barrier.action], planning_state, **tamp_kwargs,
+    )
+    if result is None:
+        return None, base_state, subgoal, None
+    merged = materialize_ref_goal_result(
+        base_state=base_state,
+        ref_goal_state=barrier.ref_goal_state,
+        final_confs=result.final_confs,
+        sequence=result.sequence,
+    )
+    return merged.sequence, set(merged.final_state), subgoal, merged

@@ -63,13 +63,13 @@ OSC-only symptoms.
 ### 2. tool frame → grip_site (downstream, OSC execution only)
 
 `DMG_OSC_planner.GRIP_SITE_CORRECTION`
-(`examples/pybullet/aloha_real/scripts/interleaved_dmg_osc_plugin.py`) is right-multiplied
+(`examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py`) is right-multiplied
 onto every FK'd / learned tool orientation in `pose_to_osc_slice` so the
 commanded pose lands in the `grip_site` frame the OSC controller tracks:
 
 | Robot | pybullet tool frame | required correction `C` (`tool ∘ C = grip_site`) | Set in |
 |---|---|---|---|
-| DMG dual Panda | `panda*_ee_link`, orientation ≡ `right_hand` | **Rz(−90°)** | class default, `interleaved_dmg_osc_plugin.py` |
+| DMG dual Panda | `panda*_ee_link`, orientation ≡ `right_hand` | **Rz(−90°)** | class default, `interleaved_sim_osc_plugin.py` |
 | LIBERO single Panda | `tool_link` = link8 ∘ Rz(+135°) | **Rz(+90°)** (= Rz(−135° − 135°) mod 360°) | `interleaved_libero_plugin.py` (`Libero_OSC_planner`); `generic_grasp_plugin.py` aliases it |
 
 Joint-space execution needs **no** such correction — it commands joints
@@ -119,7 +119,7 @@ collision with the table (`initial configuration is in collision` → barrier
 planning abort).
 
 **Correction.** `DMG_OSC_planner.GRIP_SITE_POS_OFFSET = (0, 0, −0.0035)`
-(`interleaved_dmg_osc_plugin.py`), a translation in the **local tool frame**, added to every
+(`interleaved_sim_osc_plugin.py`), a translation in the **local tool frame**, added to every
 commanded position in `pose_to_osc_slice`:
 
 ```

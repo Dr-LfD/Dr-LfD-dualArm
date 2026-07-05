@@ -31,13 +31,13 @@ Project page: <https://dr-lfd.github.io/DR-LfD-website>
                ▼
   ┌──────────────────────────┐
   │ Online TAMP loop          │  plan → execute → verify → replan
-  │ (interleaved_dmg_osc_     │
+  │ (interleaved_sim_osc_     │
   │  plugin.py, tamp_workflow)│
   └────────────┬─────────────┘
                ▼
   ┌──────────────────────────┐
   │ Trajectory execution      │  bimanual absolute end-effector control
-  │ (interleaved_dmg_osc_     │
+  │ (interleaved_sim_osc_     │
   │  plugin.py)               │
   └────────────┬─────────────┘
                ▼
@@ -60,10 +60,10 @@ Grounded-SAM perception belongs to the **real-robot** stack and is described on
 | Schema construction | `examples/pybullet/aloha_real/scripts/standalone_scripts/schema_construction.py` |
 | Problem construction | `examples/pybullet/aloha_real/openworld_aloha/problem_construction.py` |
 | Streams / samplers | `examples/pybullet/aloha_real/openworld_aloha/openworld_streams.py`, `aloha_samplers.py` |
-| Online TAMP loop | `examples/pybullet/aloha_real/scripts/interleaved_dmg_osc_plugin.py` |
+| Online TAMP loop | `examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py` |
 | TAMP workflow helpers | `examples/pybullet/aloha_real/scripts/tamp_workflow.py` |
 | Schema executor | `examples/pybullet/aloha_real/openworld_aloha/schema_executor.py` |
-| Trajectory execution / gripper frame | `examples/pybullet/aloha_real/scripts/interleaved_dmg_osc_plugin.py` (see [Gripper frame conventions](Gripper_frame_conventions.md)) |
+| Trajectory execution / gripper frame | `examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py` (see [Gripper frame conventions](Gripper_frame_conventions.md)) |
 | Contact / effect monitoring | `examples/pybullet/aloha_real/openworld_aloha/contact_monitoring.py`, `symbolic_utils.py` |
 | Learned-skill loading | `examples/pybullet/aloha_real/openworld_aloha/network_loader.py` |
 | PDDLStream core | `pddlstream/`, `downward/` |

@@ -3,7 +3,7 @@
 ## PandaGripper Rz(−90°) gripper offset (simulation)
 
 **Symptom:** When executing trajectories in simulation via
-`interleaved_dmg_osc_plugin.py`, the gripper rotates 90° on every command — both
+`interleaved_sim_osc_plugin.py`, the gripper rotates 90° on every command — both
 motion-planning segments (joint-space FK) and learned-grasp segments (EE-traj
 from the DMG policy). This is specific to the simulation controller; the real
 ALOHA executor does not use it.
@@ -26,7 +26,7 @@ controller are both in the `right_hand` frame (without the −90°):
   with `eef_name = "right_hand"`.
 
 **Fix:** Post-multiply every outgoing orientation by `Rz(−90°)` inside
-`pose_to_osc_slice` in `interleaved_dmg_osc_plugin.py`:
+`pose_to_osc_slice` in `interleaved_sim_osc_plugin.py`:
 
 ```python
 _GRIP_SITE_CORRECTION = Rotation.from_euler('z', -np.pi / 2)

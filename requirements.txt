@@ -40,11 +40,12 @@ open3d==0.19.0
 mujoco==3.3.4
 
 # --- imaging / video / plotting ---
-opencv-python==4.6.0
+opencv-python==4.6.0.66
 imageio==2.36.1
 pillow==11.3.0
 matplotlib==3.6.1
-av==10.0.0
+av==12.3.0  # NOT 10.0.0: that release shipped no wheels (sdist only), so a modern
+            # build-isolation Cython (>=3.0) fails compiling its old pyx sources
 
 # --- learned-policy stack (Diffusion-Policy / equibot) ---
 diffusers==0.30.0

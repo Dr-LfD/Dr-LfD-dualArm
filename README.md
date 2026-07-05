@@ -46,8 +46,8 @@ Two runnable bimanual DMG instances:
 
 | Task | Command |
 |---|---|
-| Threading | `python examples/pybullet/aloha_real/scripts/interleaved_dmg_osc_plugin.py --task_name two_arm_threading` |
-| Assembly | `python examples/pybullet/aloha_real/scripts/interleaved_dmg_osc_plugin.py --task_name two_arm_three_piece_assembly` |
+| Threading | `python examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py --task_name two_arm_threading` |
+| Assembly | `python examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py --task_name two_arm_three_piece_assembly` |
 
 Each run records a video under `lfd_tamp_vids/` and prints
 `Execution results: {... 'task_success': True/False ...}`. See

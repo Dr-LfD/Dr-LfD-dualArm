@@ -33,11 +33,11 @@ yourself (see [Configuration](Configuration.md)).
 
 ```bash
 # Threading
-python examples/pybullet/aloha_real/scripts/interleaved_dmg_osc_plugin.py \
+python examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py \
     --task_name two_arm_threading
 
 # Three-piece assembly
-python examples/pybullet/aloha_real/scripts/interleaved_dmg_osc_plugin.py \
+python examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py \
     --task_name two_arm_three_piece_assembly
 ```
 

@@ -25,12 +25,11 @@ import threading
 
 from examples.pybullet.aloha_real.openworld_aloha.run_openworld import (
     get_camera_mappings,
-    plan_detail_mp,
     prepare_world,
 )
 from examples.pybullet.aloha_real.openworld_aloha.open_world_utils import get_skillwise_sgs, load_yaml_params
 from examples.pybullet.aloha_real.openworld_aloha.primitives_test import test_primitive
-from examples.pybullet.utils.pybullet_tools.aloha_primitives import   BodyPath, Command, compute_absolute_differences, refine_path
+from examples.pybullet.utils.pybullet_tools.aloha_primitives import Command, compute_absolute_differences, refine_path
 from examples.pybullet.aloha_real.openworld_aloha.primitives import (
     GroupConf,
     GroupTrajectory,
@@ -39,9 +38,7 @@ from examples.pybullet.aloha_real.openworld_aloha.primitives import (
     step_curve,
     execute_command,
 )
-from examples.pybullet.utils.pybullet_tools.utils import wait_for_user, CLIENT
 from examples.pybullet.aloha_real.openworld_aloha.symbolic_utils import (
-    get_contact_action_subgoal,
     get_barrier_action_subgoal,
     build_scheduler_batches,
     search_facts,
@@ -50,22 +47,22 @@ from examples.pybullet.aloha_real.openworld_aloha.symbolic_utils import (
     _extract_skill_name_from_action,
 )
 from examples.pybullet.aloha_real.openworld_aloha.schema_executor import (
-    ActionExecutionResult,
-    execute_schema_skeleton_plan,
     extract_static_environment,
-    materialize_ref_goal_result,
 )
 from examples.pybullet.aloha_real.scripts.ros_openworld_base import observation_to_file, obtain_demo_data
 from examples.pybullet.aloha_real.scripts.standalone_scripts.schema_construction import load_runtime_schema_metadata
 from examples.pybullet.aloha_real.scripts.tamp_workflow import (
     ArmSchedulerState,
-    build_lane_checks,
-    get_action_target_object,
+    apply_state_delta,
     get_batch_target_object,
+    plan_barrier_schema,
+    plan_lane_batch_schema,
     plan_offline_sequence,
     plan_online_session,
     preserve_arm_confs,
-    rollback_batch_execution,
+    replan_subgoal_detail_mp,
+    revert_effects,
+    state_delta,
 )
 from examples.pybullet.aloha_real.openworld_aloha.network_loader import get_lfd_wrapper, update_alohaMultiSkill_wrapper, update_alohaMultiEquivSkill_wrapper
 from examples.pybullet.aloha_real.openworld_aloha.skill_naming import resolve_skill_env_key
@@ -383,7 +380,7 @@ class real_openworld(object):
             sequence = planning_session.sequence
             duration_tamp = planning_session.duration_tamp
         
-        per_arm_queue = self.process_cmd(sequence)
+        per_arm_queue = self.percept_adjust(self._split_sequence_to_queues(sequence))
         return per_arm_queue, duration_tamp
 
 
@@ -419,20 +416,6 @@ class real_openworld(object):
 
         return per_arm_queue
 
-    def process_cmd(self, sequence: Sequence) -> dict:
-        """Split a Sequence into per-arm queues, bridging from the live robot config."""
-        return self.percept_adjust(self._split_sequence_to_queues(sequence))
-
-    def process_cmd_no_adjust(self, sequence: Sequence) -> dict:
-        """Split a Sequence into per-arm queues without bridging.
-
-        Use when the sequence already contains the required connector motions
-        (e.g. online TAMP batches rebuilt from symbolic AtConf during planning).
-        """
-        return self._split_sequence_to_queues(sequence)
-    
-
-    
     def percept_adjust(self, per_arm_queue, prev_ends=None):
         """Bridge any discontinuity between consecutive trajectories.
 
@@ -657,22 +640,6 @@ class real_openworld(object):
             )
         return real_config
 
-    # def _apply_verified_state(self, verified_state, actions):
-    #     self.current_state = verified_state
-
-    @staticmethod
-    def _state_delta_from_base(base_state, updated_state):
-        base = set(base_state)
-        updated = set(updated_state)
-        return base - updated, updated - base
-
-    @staticmethod
-    def _apply_state_delta(base_state, removed_literals, added_literals):
-        merged = set(base_state)
-        merged -= set(removed_literals)
-        merged |= set(added_literals)
-        return merged
-
     @staticmethod
     def _sync_refreshed_object_pose_facts(state, obj_to_pose):
         """Call ``update_pose(world_pose)`` on the pose object already in ``AtPose``/``Pose``.
@@ -713,13 +680,10 @@ class real_openworld(object):
             pose_handle.update_pose(world_pose)
         return merged
 
-    def _finalize_verified_state(self, updated_state, action_checks, execution_results, actions, sync_arms=None):
+    def _finalize_verified_state(self, updated_state, action_checks, revert_facts):
         verified, _achieved, results = self._verify_action_checks(
-            updated_state, action_checks, execution_results
+            updated_state, action_checks, revert_facts
         )
-        # if sync_arms:
-        #     verified = self._sync_live_arm_atconfs(verified, arms=sync_arms)
-        # self._apply_verified_state(verified, actions)
         self.current_state = verified
         return results
 
@@ -941,59 +905,35 @@ class real_openworld(object):
         )
         return updated_state, subgoal_achieved, lane_results
 
-    def _verify_action_checks(self, updated_state, lane_checks, execution_results=None):
+    def _verify_action_checks(self, updated_state, lane_checks, revert_facts=None):
         verified, achieved, results = self.perceive_env(updated_state, lane_checks)
-        if execution_results:
-            for key, exec_result in execution_results.items():
+        if revert_facts:
+            for key, (added_facts, removed_facts) in revert_facts.items():
                 if not results.get(key, True):
-                    verified = rollback_batch_execution(verified, exec_result)
+                    verified = revert_effects(
+                        verified, added_facts=added_facts, removed_facts=removed_facts
+                    )
         return verified, achieved, results
 
     def _plan_lane_batch(self, lane, batch):
-        """Expand a lane batch into an executable Sequence via the schema executor."""
-        lane_subgoal = get_contact_action_subgoal(batch.ref_goal_state, batch.actions)
-        result = execute_schema_skeleton_plan(
-            self.para,
-            self.robot_entity,
-            self.static_environment,
-            batch.actions,
-            self._planning_current_state(),
-            **self._tamp_kwargs,
+        """Bind live/committed state to the shared schema fast-path."""
+        return plan_lane_batch_schema(
+            self.para, self.robot_entity, self.static_environment, batch,
+            planning_state=self._planning_current_state(),
+            base_state=self.current_state,
+            tamp_kwargs=self._tamp_kwargs,
         )
-        if result is None:
-            return None, self.current_state, lane_subgoal, None
-
-        return result.sequence, set(result.final_state), lane_subgoal, result
-
 
     def _replan_with_detail_mp(self, subgoal, label, batch=None):
-        """Shared retry logic: run detail MP and return the standard 4-tuple.
-
-        After a successful replan, if *batch* is provided, its ``actions`` are
-        replaced in-place with the new ``plan_seg`` symbolic actions.  This ensures
-        subsequent ``_plan_lane_batch`` / schema-executor calls use fresh stream
-        payloads rather than stale ones from the original global plan.
-        """
-        print(f'[online_tamp] {label} schema planning failed, retrying with detail MP')
-        seq, updated_state, plan_seg = plan_detail_mp(
-            self.para,
-            self.robot_entity,
-            self.problem,
-            self.stream_info,
-            self._planning_current_state(),
-            subgoal,
-            static_environment=self.static_environment,
-            **self._tamp_kwargs,
+        """Bind live/committed state to the shared detail-MP retry (no skeleton constraint)."""
+        return replan_subgoal_detail_mp(
+            self.para, self.robot_entity, self.problem, self.stream_info,
+            self.static_environment, subgoal,
+            planning_state=self._planning_current_state(),
+            base_state=self.current_state,
+            tamp_kwargs=self._tamp_kwargs,
+            batch=batch, skeleton_segment=None, label=label,
         )
-        if seq is None:
-            return None, self.current_state, subgoal, None
-        if batch is not None and plan_seg is not None:
-            batch.actions = list(plan_seg)
-        return seq, set(updated_state), subgoal, None
-
-    def _replan_lane_batch_with_detail_mp(self, lane, batch):
-        subgoal = get_contact_action_subgoal(batch.ref_goal_state, batch.actions)
-        return self._replan_with_detail_mp(subgoal, label=f'{lane} lane', batch=batch)
 
     def _enqueue_lane_retry_from_subgoal(self, side, batch, lane_subgoal):
         """Retry a failed lane from the verified current state without reusing old action args.
@@ -1013,11 +953,13 @@ class real_openworld(object):
             label=f'{side} lane',
             batch=batch,
         )
-        # if seq is None:
-        #     self._abort_execution(f'[online_tamp] {side} lane detail-MP retry failed, aborting')
-        #     return
+        if seq is None:
+            self._abort_execution(
+                f'[online_tamp] {side} lane detail-MP retry produced no sequence, aborting'
+            )
+            return
 
-        removed_literals, added_literals = self._state_delta_from_base(
+        removed_literals, added_literals = state_delta(
             self.current_state,
             updated_state,
         )
@@ -1029,30 +971,17 @@ class real_openworld(object):
             added_literals,
         )
 
-        split = self.process_cmd_no_adjust(seq)
+        split = self._split_sequence_to_queues(seq)
         self.per_arm_queue[side].extend(split[side])
 
     def _run_pending_barrier(self, barrier):
-        """Expand a barrier action and materialise its symbolic state."""
-        subgoal = get_barrier_action_subgoal(barrier.ref_goal_state, barrier.action)
-        result = execute_schema_skeleton_plan(
-            self.para,
-            self.robot_entity,
-            self.static_environment,
-            [barrier.action],
-            self._planning_current_state(),
-            **self._tamp_kwargs,
-        )
-        if result is None:
-            return None, self.current_state, subgoal, None
-        merged = materialize_ref_goal_result(
+        """Bind live/committed state to the shared barrier schema fast-path."""
+        return plan_barrier_schema(
+            self.para, self.robot_entity, self.static_environment, barrier,
+            planning_state=self._planning_current_state(),
             base_state=self.current_state,
-            ref_goal_state=barrier.ref_goal_state,
-            final_confs=result.final_confs,
-            sequence=result.sequence,
+            tamp_kwargs=self._tamp_kwargs,
         )
-
-        return merged.sequence, set(merged.final_state), subgoal, merged
 
 
 
@@ -1093,16 +1022,13 @@ class real_openworld(object):
             return self.current_state
         return self._sync_live_arm_atconfs(self.current_state)
 
-    def _refill_lane(self, side, plan_fn=None):
-        """Plan the next batch for *side* and push it onto per_arm_queue.
+    def _refill_lane(self, side):
+        """Plan the next batch for *side* via schema expansion and push it onto per_arm_queue.
 
         Called when the lane's queue is exhausted.  In online mode this
         transparently schedules the next unit of work without a global
-        replan, matching the robosuite online_tamp() semantics.
-        ``plan_fn`` defaults to ``_plan_lane_batch`` (schema skeleton expansion).
-        Pass ``_replan_lane_batch_with_detail_mp`` only when retrying after a
-        verified execution failure (see ``_enqueue_lane_retry_from_subgoal``).
-        If expansion returns no sequence, raises ``ValueError``.
+        replan, matching the robosuite online_tamp() semantics.  Raises
+        ``ValueError`` if expansion returns no sequence.
         """
         if not self._online_tamp:
             return
@@ -1126,13 +1052,11 @@ class real_openworld(object):
                 self.arm_path_finished[side] = True
             return
 
-        if plan_fn is None:
-            plan_fn = self._plan_lane_batch
-        seq, updated_state, lane_subgoal, exec_result = plan_fn(side, batch)
+        seq, updated_state, lane_subgoal, exec_result = self._plan_lane_batch(side, batch)
         if seq is None:
             raise ValueError('No solution for primitive online plan. Is MP blocked?')
 
-        removed_literals, added_literals = self._state_delta_from_base(
+        removed_literals, added_literals = state_delta(
             self.current_state,
             updated_state,
         )
@@ -1144,7 +1068,7 @@ class real_openworld(object):
             added_literals,
         )
 
-        split = self.process_cmd_no_adjust(seq)
+        split = self._split_sequence_to_queues(seq)
         self.per_arm_queue[side].extend(split[side])
 
     def _on_lane_batch_complete(self, side):
@@ -1158,7 +1082,7 @@ class real_openworld(object):
             removed_literals,
             added_literals,
         ) = self._pending_verification.pop(side)
-        updated_state = self._apply_state_delta(
+        updated_state = apply_state_delta(
             self.current_state,
             removed_literals,
             added_literals,
@@ -1169,23 +1093,16 @@ class real_openworld(object):
                 'target_obj': get_batch_target_object(batch),
             }
         }
+        # Schema path carries the executor's own effect facts; the detail-MP path
+        # has no exec_result, so fall back to the stored state delta.
         if exec_result is not None:
-            exec_results_map = {side: exec_result}
+            revert_facts = {side: (exec_result.added_facts, exec_result.removed_facts)}
         else:
-            # detail-MP 路径无 exec_result；用已存的状态差量合成，保证 rollback 能正常运行
-            synthetic = ActionExecutionResult(
-                sequence=None,
-                final_confs={},
-                final_state=set(updated_state),
-                added_facts=frozenset(added_literals),
-                removed_facts=frozenset(removed_literals),
-            )
-            exec_results_map = {side: synthetic}
+            revert_facts = {side: (added_literals, removed_literals)}
         results = self._finalize_verified_state(
             updated_state,
             lane_check,
-            exec_results_map,
-            batch.actions,
+            revert_facts,
         )
 
         if results.get(side, True):
@@ -1193,12 +1110,6 @@ class real_openworld(object):
             self.local_retries[side] = 0
         else:
             self.local_retries[side] += 1
-            # if self.local_retries[side] >= self.MAX_LOCAL_RETRIES:
-            #     self._abort_execution(
-            #         f'[online_tamp] {side} lane verification failed after '
-            #         f'{self.MAX_LOCAL_RETRIES} retries, aborting'
-            #     )
-            #     return
             print(f'[online_tamp] {side} lane verification failed, '
                   f'retry {self.local_retries[side]}/{self.MAX_LOCAL_RETRIES}')
             self._enqueue_lane_retry_from_subgoal(side, batch, lane_subgoal)
@@ -1232,7 +1143,7 @@ class real_openworld(object):
             else:
                 self.lfd.cancel_prefetch()
 
-        split = self.process_cmd_no_adjust(seq)
+        split = self._split_sequence_to_queues(seq)
         for s in ('left', 'right'):
             self.per_arm_queue[s].extend(split[s])
 
@@ -1241,26 +1152,9 @@ class real_openworld(object):
         if 'barrier' not in self._pending_verification:
             return
         barrier, subgoal, exec_result, updated_state = self._pending_verification.pop('barrier')
-        self.current_state = updated_state  ## for real biop, no need to check eff
-
-        # barrier_check = {}
-        # if subgoal:
-        #     barrier_check['barrier'] = {
-        #         'subgoal': list(subgoal),
-        #         'target_obj': get_action_target_object(barrier.action),
-        #     }
-        # exec_results_map = {'barrier': exec_result} if exec_result is not None else {}
-        # results = self._finalize_verified_state(
-        #     updated_state,
-        #     barrier_check,
-        #     exec_results_map,
-        #     [barrier.action],
-        #     sync_arms=barrier.action.args[:2],
-        # )
-
-        # if barrier_check and not results.get('barrier', True):
-        #     self._abort_execution('[online_tamp] Barrier effect not achieved after perception, aborting')
-        #     return
+        # Real bimanual barriers are treated as deterministic: commit the planned
+        # effect without a post-execution perception check.
+        self.current_state = updated_state
 
         # Advance scheduler past this barrier
         if self.scheduler.pending_barriers:

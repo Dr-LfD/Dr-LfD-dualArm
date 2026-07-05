@@ -12,11 +12,13 @@ The plan → execute → verify → replan loop that drives bimanual execution.
 
 ## Source files
 
-- `examples/pybullet/aloha_real/scripts/interleaved_dmg_osc_plugin.py`
+- `examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py`
   (`DMG_OSC_planner`, `online_tamp()`, `execute_robosuite_plan()`).
 - `examples/pybullet/aloha_real/scripts/tamp_workflow.py`
-  (`ArmSchedulerState`, `plan_online_session()`, `plan_detail_mp()`,
-  `merge_batch_sequences()`).
+  (`ArmSchedulerState`, `plan_online_session()`, the shared lane/barrier
+  planners `plan_lane_batch_schema()` / `replan_subgoal_detail_mp()` /
+  `plan_barrier_schema()`, and the state algebra `state_delta()` /
+  `revert_effects()` / `merge_lane_states()`).
 - `examples/pybullet/aloha_real/openworld_aloha/symbolic_utils.py`
   (subgoal detection, `simulate_plan_execution()`).
 

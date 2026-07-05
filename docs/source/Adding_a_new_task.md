@@ -14,7 +14,7 @@ The pieces a new task needs:
    edges (consumed by [Schema construction](Schema_construction.md)).
 3. **Checkpoints** — DP/SDP policy and equiv_primitive keypoint/operator checkpoints,
    referenced from the config (see [Configuration](Configuration.md)).
-4. **Run** — `interleaved_dmg_osc_plugin.py --task_name <task>`.
+4. **Run** — `interleaved_sim_osc_plugin.py --task_name <task>`.
 
 ## Source files
 

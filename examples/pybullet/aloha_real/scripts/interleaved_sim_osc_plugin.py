@@ -42,14 +42,11 @@ from examples.pybullet.aloha_real.openworld_aloha.primitives import (
     Sequence,
 )
 from examples.pybullet.aloha_real.openworld_aloha.run_openworld import (
-    plan_detail_mp,
     prepare_world,
 )
 from examples.pybullet.aloha_real.openworld_aloha.schema_executor import (
     build_connector_motion,
-    execute_schema_skeleton_plan,
     extract_static_environment,
-    materialize_ref_goal_result,
 )
 from examples.pybullet.aloha_real.openworld_aloha.simple_worlds import update_mesh
 from examples.pybullet.aloha_real.openworld_aloha.symbolic_utils import (
@@ -58,7 +55,6 @@ from examples.pybullet.aloha_real.openworld_aloha.symbolic_utils import (
     build_scheduler_batches,
     convert_plan_to_skeleton,
     effect_monitor_sensor_data,
-    get_barrier_action_subgoal,
     get_contact_action_subgoal,
     search_facts,
 )
@@ -67,16 +63,17 @@ from examples.pybullet.aloha_real.scripts.standalone_scripts.schema_construction
 )
 from examples.pybullet.aloha_real.scripts.tamp_workflow import (
     ArmSchedulerState,
-    ExecutionRequest,
-    build_output_info,
-    execute_request,
     get_action_target_object,
     get_batch_target_object,
-    infer_stop_mode,
-    merge_batch_sequences,
+    merge_lane_states,
+    plan_barrier_schema,
+    plan_lane_batch_schema,
     plan_online_session,
     preserve_arm_confs,
+    replan_subgoal_detail_mp,
+    revert_effects,
     split_sequence_per_arm,
+    state_delta,
 )
 
 
@@ -540,12 +537,12 @@ class DMG_OSC_planner(object):
         if global_solution is None or global_solution.plan is None:
             print('\033[31m[online_tamp] No TAMP plan found within budget; '
                   'reporting task_success=False.\033[0m')
-            self.output_info = build_output_info(
-                task_name=self.task_name,
-                task_success=self.success,
-                duration_tamp=session.duration_tamp,
-                recording_path=None,
-            )
+            self.output_info = {
+                "recording_path": None,
+                "task_success": self.success,
+                "duration_tamp": session.duration_tamp,
+                "task_name": self.task_name,
+            }
             return
 
         scheduler_batches = build_scheduler_batches(
@@ -619,12 +616,12 @@ class DMG_OSC_planner(object):
                 scheduler.advance_phase()
 
         recording_path = self.lfd.exit()
-        self.output_info = build_output_info(
-            task_name=self.task_name,
-            task_success=self.success,
-            duration_tamp=session.duration_tamp,
-            recording_path=recording_path,
-        )
+        self.output_info = {
+            "recording_path": recording_path,
+            "task_success": self.success,
+            "duration_tamp": session.duration_tamp,
+            "task_name": self.task_name,
+        }
 
     def _next_stage(self, scheduler):
         """Return the next executable stage, preserving left/right parallelism.
@@ -651,8 +648,8 @@ class DMG_OSC_planner(object):
         verified units' effects and revert only the failed ones.
 
         Lanes are planned per-lane and merged so both arms move together. The
-        barrier sequence is returned directly (never through merge_batch_sequences)
-        so its graphstate_markers survive for BC stop-mode execution; barriers
+        barrier sequence is returned directly (never merged) so its
+        graphstate_markers survive for BC stop-mode execution; barriers
         always use the schema path (their connector RRT is the stochastic part a
         retry resamples).
         """
@@ -687,7 +684,8 @@ class DMG_OSC_planner(object):
                     'subgoal': list(lane_subgoal),
                     'target_obj': get_batch_target_object(batch),
                 }
-        return merge_batch_sequences(sequences), unit_states, checks
+        merged_seq = Sequence([cmd for seq in sequences for cmd in seq.commands])
+        return merged_seq, unit_states, checks
 
     def _execute_and_verify(self, seq, unit_states, checks):
         """ExecuteAndVerify: run the sequence, monitor effects, verify subgoals.
@@ -699,12 +697,10 @@ class DMG_OSC_planner(object):
         re-plans that unit from the un-moved belief, while verified units keep theirs.
         """
         subgoals = {key: chk['subgoal'] for key, chk in checks.items()}
+        stop_mode = "bc" if getattr(seq, 'graphstate_markers', ()) else "replan"
         self._begin_contact_monitoring(subgoals)
         try:
-            status = execute_request(
-                self.execute_robosuite_plan,
-                ExecutionRequest(sequence=seq, stop_mode=infer_stop_mode(seq)),
-            ).status
+            status = self.execute_robosuite_plan(seq, stop_mode=stop_mode)
         finally:
             self._end_contact_monitoring()
 
@@ -713,71 +709,44 @@ class DMG_OSC_planner(object):
         if status in ('fail', 'success'):
             return status, self.current_state, status == 'success', {}
 
-        merged_state = self._merge_lane_updated_states(
-            self.current_state, unit_states.values()
-        )
+        merged_state = merge_lane_states(self.current_state, unit_states.values())
         verified_state, achieved, results = self.perceive_env(merged_state, checks)
         verified_state = set(verified_state)
         for key, unit_state in unit_states.items():
             if results.get(key, True):
                 continue
-            added = set(unit_state) - set(self.current_state)
-            removed = set(self.current_state) - set(unit_state)
-            verified_state = (verified_state - added) | removed
+            removed, added = state_delta(self.current_state, unit_state)
+            verified_state = revert_effects(
+                verified_state, added_facts=added, removed_facts=removed
+            )
         return status, verified_state, achieved, results
 
     def _plan_lane_batch(self, lane, batch):
-        """Schema fast-path: expand a lane batch into an executable Sequence."""
-        lane_subgoal = get_contact_action_subgoal(batch.ref_goal_state, batch.actions)
-        result = execute_schema_skeleton_plan(
-            self.para, self.robot_entity, self.static_environment,
-            batch.actions, self.current_state, **self.tamp_kwargs_dict,
+        """Bind this planner's state to the shared schema fast-path."""
+        return plan_lane_batch_schema(
+            self.para, self.robot_entity, self.static_environment, batch,
+            planning_state=self.current_state, base_state=self.current_state,
+            tamp_kwargs=self.tamp_kwargs_dict,
         )
-        if result is None:
-            return None, self.current_state, lane_subgoal, None
-        return result.sequence, set(result.final_state), lane_subgoal, result
 
     def _replan_lane_batch_with_detail_mp(self, lane, batch):
-        """Retry path: re-solve a local PDDLStream problem for this lane's subgoal."""
-        lane_subgoal = get_contact_action_subgoal(batch.ref_goal_state, batch.actions)
-        seq, updated_state, plan_seg = plan_detail_mp(
+        """Bind this planner's state to the shared detail-MP retry (skeleton-constrained)."""
+        subgoal = get_contact_action_subgoal(batch.ref_goal_state, batch.actions)
+        return replan_subgoal_detail_mp(
             self.para, self.robot_entity, self.problem, self.stream_info,
-            self.current_state, lane_subgoal,
-            static_environment=self.static_environment,
-            skeleton_segment=convert_plan_to_skeleton(batch.actions),
-            **self.tamp_kwargs_dict,
+            self.static_environment, subgoal,
+            planning_state=self.current_state, base_state=self.current_state,
+            tamp_kwargs=self.tamp_kwargs_dict,
+            batch=batch, skeleton_segment=convert_plan_to_skeleton(batch.actions),
         )
-        if seq is None:
-            return None, self.current_state, lane_subgoal, None
-        if plan_seg is not None:
-            # Use the freshly grounded actions so a later schema expansion reuses
-            # the new stream payloads rather than stale ones from the global plan.
-            batch.actions = list(plan_seg)
-        return seq, set(updated_state), lane_subgoal, None
-
-    def _merge_lane_updated_states(self, base_state, lane_states):
-        merged_state = set(base_state)
-        for lane_state in lane_states:
-            merged_state -= base_state - lane_state
-            merged_state |= lane_state - base_state
-        return merged_state
 
     def _run_pending_barrier(self, barrier):
-        """Schema fast-path for a bimanual barrier; materialize its symbolic effect."""
-        subgoal = get_barrier_action_subgoal(barrier.ref_goal_state, barrier.action)
-        result = execute_schema_skeleton_plan(
-            self.para, self.robot_entity, self.static_environment,
-            [barrier.action], self.current_state, **self.tamp_kwargs_dict,
+        """Bind this planner's state to the shared barrier schema fast-path."""
+        return plan_barrier_schema(
+            self.para, self.robot_entity, self.static_environment, barrier,
+            planning_state=self.current_state, base_state=self.current_state,
+            tamp_kwargs=self.tamp_kwargs_dict,
         )
-        if result is None:
-            return None, self.current_state, subgoal, None
-        merged = materialize_ref_goal_result(
-            base_state=self.current_state,
-            ref_goal_state=barrier.ref_goal_state,
-            final_confs=result.final_confs,
-            sequence=result.sequence,
-        )
-        return merged.sequence, set(merged.final_state), subgoal, merged
 
     # ------------------------------------------------------------------
     # OSC_POSE absolute-EE execution
