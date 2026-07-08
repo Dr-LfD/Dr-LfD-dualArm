@@ -26,11 +26,12 @@ native builds).
 ## Configuration (paths)
 
 External dependency paths are not hardcoded. Config files and scripts reference
-them through `${WS_ROOT}` (your workspace holding the sibling dependency repos),
-`${REPO_ROOT}` (this repo, resolved automatically), and `${HOME}`. Copy
-`.env.example` to `.env`, set `WS_ROOT`, and `source .env` before running. Unset
-variables are left literal so a missing path fails loudly rather than silently
-resolving to the wrong location. See [Configuration](docs/source/Configuration.md).
+them through `${REPO_ROOT}` (this repo, resolved automatically), `${WS_ROOT}`
+(external workspace, only for real-robot data), and `${HOME}`. The learned-policy
+dependencies are vendored submodules and auto-discovered, so the simulation route
+needs no `.env`; copy `.env.example` to `.env` only for overrides or real-robot
+data. Any other unset variable is left literal so a missing path fails loudly.
+See [Configuration](docs/source/Configuration.md).
 
 ## Run the simulation examples
 

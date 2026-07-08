@@ -682,18 +682,46 @@ def _lfd_from_image_and_runtime(image_hwc_uint8, runtime, contact_edge, resolve_
 
 
 if __name__ == "__main__":
-    import cv2
+    import argparse
 
-    _repo = resolve_workspace_root(__file__)
-    IMAGE = os.path.expanduser("~/interbotix_ws/src/pddlstream_aloha/cam_wrist_rgb_latest.png")
-    CONTACT_REPO = os.path.expandvars("${CONTACT_PREDICTION_ROOT}")
-    # CHECKPOINT = "${CONTACT_PREDICTION_ROOT}/data/outputs/2026.05.11/14.45.50_train_keypose_transformer_handoff_cup_multi_edge_wristview/checkpoints/latest.ckpt"
-    # CONTACT_EDGE = "right_arm_cup"
-    CHECKPOINT = os.path.expandvars("${CONTACT_PREDICTION_ROOT}/data/outputs/2026.05.19/11.39.08_train_keypose_transformer_screwdriver_multi_edge_wristview/checkpoints/latest.ckpt")
-    CONTACT_EDGE = "left_arm_screwdriver"
-    DEVICE = "cuda:0"
-    # THRESHOLD = 0.3
-    SEG_BACKEND = "grounded_sam"  # "sam3" to use SAM3 worker subprocess
+    parser = argparse.ArgumentParser(
+        description="Smoke-test the contact predictor on a single wrist image."
+    )
+    parser.add_argument("--image", required=True, help="Wrist-camera RGB image to score.")
+    parser.add_argument("--checkpoint", required=True, help="Contact predictor .ckpt.")
+    parser.add_argument("--contact-edge", default="left_arm_screwdriver")
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--seg-backend", default="grounded_sam", choices=sorted(_VALID_SEG_BACKENDS))
+    parser.add_argument("--threshold", type=float, default=0.3)
+    parser.add_argument(
+        "--contact-prediction-root", default=None,
+        help="ContactPrediction checkout (default: $CONTACT_PREDICTION_ROOT, "
+             "else the vendored <repo>/contact_detector submodule).",
+    )
+    args = parser.parse_args()
+
+    # CLI paths bypass load_yaml's ${VAR}/~ expansion.
+    def _expand(p):
+        return os.path.expanduser(os.path.expandvars(p)) if p else p
+
+    IMAGE = _expand(args.image)
+    CONTACT_EDGE = args.contact_edge
+    DEVICE = args.device
+    SEG_BACKEND = args.seg_backend
+    THRESHOLD = args.threshold
+
+    CONTACT_REPO = (
+        _expand(args.contact_prediction_root)
+        or os.environ.get("CONTACT_PREDICTION_ROOT")
+        or os.path.join(resolve_workspace_root(__file__), "contact_detector")
+    )
+    if not os.path.isdir(os.path.join(CONTACT_REPO, "contact_pred")):
+        raise SystemExit(
+            f"ContactPrediction package not found under {CONTACT_REPO!r}; set "
+            "--contact-prediction-root or $CONTACT_PREDICTION_ROOT, or initialize "
+            "the contact_detector submodule."
+        )
+    CHECKPOINT = _expand(args.checkpoint)
     OUTPUT_DIR = os.path.join(os.getcwd(), "_contact_monitor_debug")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -702,7 +730,7 @@ if __name__ == "__main__":
     effect_detection_defaults = {
         "seg_branch": SEG_BACKEND,
         "contact_wrist_seg_backend": None,
-        # "contact_label_threshold": THRESHOLD,
+        "contact_label_threshold": THRESHOLD,
     }
 
     seg_pairing = validate_seg_backend_pairing(
@@ -734,6 +762,8 @@ if __name__ == "__main__":
     )
     runtime = session.load_runtime(checkpoint_abs)
 
+    import cv2
+
     bgr = cv2.imread(os.path.expanduser(IMAGE))
     image_hwc = np.asarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), dtype=np.uint8)
     lfd = _lfd_from_image_and_runtime(
@@ -747,7 +777,7 @@ if __name__ == "__main__":
             "checkpoint": checkpoint_abs,
             "contact_edge": CONTACT_EDGE,
             "skip_frame": 1,
-            # "contact_label_threshold": THRESHOLD,
+            "contact_label_threshold": THRESHOLD,
         },
     }
 

@@ -1,5 +1,5 @@
 sg_params:
-  h5_parent_dir: "/ssd1/aloha_data/clean_cup"
+  h5_parent_dir: "${WS_ROOT}/aloha_data/clean_cup"
   skill_name: 'clean_cup'
   skill_type: 'bimanualAnd'
   pre_obj_names: ['cup','sponge']
@@ -37,6 +37,5 @@ LfD_params:
   env_type: 'real'
   DP_path: '${DIFFUSION_POLICY_ROOT}/'
   DP_input: 
-    # clean_cup: '/ssd1/chenyizhou/dp_ckpts/clean_cup/latest.ckpt'
-    clean_cup: '/ssd1/chenyizhou/dp_ckpts/clean_cup/20demos/latest.ckpt'
+    clean_cup: '${REPO_ROOT}/ckpt/dp_ckpts/clean_cup/20demos/latest.ckpt'
 

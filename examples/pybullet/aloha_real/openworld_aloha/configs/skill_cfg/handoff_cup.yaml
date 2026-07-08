@@ -1,5 +1,5 @@
 sg_params:  
-  h5_parent_dir: "/ssd1/aloha_data/handoff_cup"
+  h5_parent_dir: "${WS_ROOT}/aloha_data/handoff_cup"
   skill_name: 'handoff_cup'
   # skill_names: ['bimanual_0', 'grasp']
   skill_type: 'bimanualOr'
@@ -38,6 +38,5 @@ LfD_params:
   env_type: 'real'
   DP_path: '${DIFFUSION_POLICY_ROOT}/'
   DP_input: 
-    handoff_cup: '/ssd1/chenyizhou/dp_ckpts/handoff_cup/20demos/latest_diverse.ckpt'
-    # handoff_cup: /'/ssd1/chenyizhou/dp_ckpts/handoff_cup/20demos/latest.ckpt'
+    handoff_cup: '${REPO_ROOT}/ckpt/dp_ckpts/handoff_cup/20demos/latest_diverse.ckpt'
 

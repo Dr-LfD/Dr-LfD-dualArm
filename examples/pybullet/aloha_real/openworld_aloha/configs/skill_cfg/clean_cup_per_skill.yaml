@@ -1,8 +1,8 @@
-contact_predictor_checkpoint: '/ssd1/chenyizhou/contact_ckpt/sponge_right_arm.ckpt'
+contact_predictor_checkpoint: '${REPO_ROOT}/ckpt/contact_ckpt/sponge_right_arm.ckpt'
 
 
 sg_params:  
-  h5_parent_dir: "/ssd1/aloha_data/clean_cup/"
+  h5_parent_dir: "${WS_ROOT}/aloha_data/clean_cup/"
   skill_name: 'clean_cup'
   skill_type: 'bimanualAnd'
   pre_obj_names: ['cup','sponge']
@@ -49,6 +49,4 @@ LfD_params:
   env_type: 'real'
   DP_path: '${DIFFUSION_POLICY_ROOT}/'
   DP_input: 
-    # bimanual_clean_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/clean_cup/long_chunk/dp_3view_place.ckpt'
-    # bimanual_clean_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/clean_cup/long_chunk/fm_3view.ckpt'
-    bimanual_clean_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/clean_cup/long_chunk/cluttered.ckpt'
+    bimanual_clean_cup_per_skill: '${REPO_ROOT}/ckpt/dp_ckpts/clean_cup/long_chunk/cluttered.ckpt'

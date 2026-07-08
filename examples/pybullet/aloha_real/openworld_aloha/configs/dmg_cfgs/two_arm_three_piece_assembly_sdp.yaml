@@ -1,3 +1,5 @@
+# EXPERIMENTAL — Spherical Diffusion Policy variant (needs ${SPHERICAL_DP_ROOT},
+# ${DEXMIMICGEN_ROOT} + unshipped SDP ckpts). Supported route: the non-_sdp config.
 # OSC_POSE absolute-EE execution variant of two_arm_three_piece_assembly
 use_gui: False
 robot_name: 'pandadual'

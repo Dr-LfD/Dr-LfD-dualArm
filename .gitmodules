@@ -13,3 +13,6 @@
 [submodule "primitive_learning"]
 	path = primitive_learning
 	url = https://github.com/Dr-LfD/Equiv_primitive.git
+[submodule "diffusion_policy_sg"]
+	path = diffusion_policy_sg
+	url = https://github.com/Dr-LfD/diffusion_policy_sg.git

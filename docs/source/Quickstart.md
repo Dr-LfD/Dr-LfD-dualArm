@@ -7,22 +7,23 @@ real-robot route see [Real robot](Real_robot.md) (optional).
 
 - [Installation](Installation.md) complete: conda env `dr-lfd`, customized forks,
   Fast Downward and IKFast built.
-- The learned-policy sibling repos (Diffusion-Policy, equiv_primitive) cloned to the
-  locations referenced by the task config (see [Configuration](Configuration.md)).
-- DMG / Diffusion-Policy checkpoints present at the paths the task config expects.
+- Submodules initialized (`git submodule update --init`); `diffusion_policy_sg`,
+  `primitive_learning` and `contact_detector` are then auto-discovered, so the sim
+  route needs no `.env` (see [Configuration](Configuration.md)).
+- Checkpoints downloaded: `python download_ckpts.py` (into `ckpt/`).
 
 ## Environment
 
 ```bash
 conda activate dr-lfd
-export WS_ROOT="<your workspace root>"      # external repos live here
+cd <repo root>                               # run commands from the repo root
 export CUDA_VISIBLE_DEVICES="0"
 export MUJOCO_GL="egl"                       # headless rendering
-export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/examples/pybullet/aloha_real/scripts"
+export PYTHONPATH="$(pwd):$(pwd)/examples/pybullet/aloha_real/scripts"
 ```
 
-`${REPO_ROOT}` resolves to this repository automatically; `WS_ROOT` you set
-yourself (see [Configuration](Configuration.md)).
+Config `${REPO_ROOT}` placeholders resolve automatically at load time; run from
+the repo root so the relative config paths resolve too.
 
 ## Run
 
@@ -44,7 +45,8 @@ python examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py \
 ### Runtime overrides
 
 - `--sg KEY=VALUE` (repeatable) overrides a `sg_params` field without editing the
-  YAML, e.g. `--sg equi_ckpt_name=logs/train/dmg_threading/inhand-fps.pth`.
+  YAML, e.g. `--sg equi_ckpt_name='${REPO_ROOT}/ckpt/dmg_threading/equi.pth'`
+  (`${VAR}`/`~` are expanded).
 - `--dp_ckpt PATH` overrides the Diffusion-Policy checkpoint.
 
 ## Expected output

@@ -897,7 +897,7 @@ def construct_mdf_and_save_point_cloud(num_demos=None):
     
     # Load demonstration files (HDF5 format)
     # Update this path to point to your clean_cup demonstration HDF5 files
-    hdf5_dir = "/ssd1/aloha_data/clean_cup"  # Default path for clean_cup data
+    hdf5_dir = os.path.expandvars("${WS_ROOT}/aloha_data/clean_cup")  # override via WS_ROOT
     hdf5_files = []
     
     # You can either provide a directory or specific file paths

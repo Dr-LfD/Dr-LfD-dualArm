@@ -14,23 +14,27 @@ through `${VAR}` placeholders, expanded by `repo_paths.py`:
 Each external dependency **module** has its own dedicated macro (rather than a
 `${WS_ROOT}/<module>` sub-path), so a checkout can live anywhere:
 
-| Macro | Module |
-|---|---|
-| `${PRIMITIVE_LEARNING_ROOT}` | equiv_primitive (object-centric primitive learning) |
-| `${DIFFUSION_POLICY_ROOT}` | Diffusion-Policy (visuomotor policies + checkpoints) |
-| `${SPHERICAL_DP_ROOT}` | Spherical Diffusion Policy (SDP configs) |
-| `${DEXMIMICGEN_ROOT}` | dexmimicgen (sim env / data) |
-| `${CONTACT_PREDICTION_ROOT}` | contact-prediction (real-robot) |
+| Macro | Module | Required? |
+|---|---|---|
+| `${DIFFUSION_POLICY_ROOT}` | Diffusion-Policy code repo | Optional — defaults to `<repo>/diffusion_policy_sg` submodule |
+| `${PRIMITIVE_LEARNING_ROOT}` | equiv_primitive (object-centric primitive learning) | Optional — defaults to `<repo>/primitive_learning` submodule |
+| `${CONTACT_PREDICTION_ROOT}` | contact-prediction (real-robot) | Optional — defaults to `<repo>/contact_detector` submodule |
+| `${SPHERICAL_DP_ROOT}` | Spherical Diffusion Policy | Experimental `*_sdp.yaml` only |
+| `${DEXMIMICGEN_ROOT}` | dexmimicgen | Experimental `*_sdp.yaml` only |
 
-Set up:
+The sim route needs no `.env` at all once submodules are initialized: the three
+learned-policy macros default to the vendored submodules
+(`<repo>/{diffusion_policy_sg,primitive_learning,contact_detector}`) after `git
+submodule update --init`. Set a macro only to point at a separate development
+checkout (an explicit environment variable always wins); `WS_ROOT` is only
+needed for real-robot data paths. Copy the template if you need any override:
 
 ```bash
-cp .env.example .env       # then set WS_ROOT and each module macro
-source .env
+cp .env.example .env && source .env
 ```
 
-Macros have **no default** — an unset one is left literal so a missing path fails
-loudly rather than silently resolving to the wrong location.
+Any other unset macro is left literal so a missing path fails loudly rather than
+silently resolving to the wrong location.
 
 ## Task configs
 
@@ -46,11 +50,10 @@ Per-task configuration lives under
 
 ### Key fields
 
-- **Sibling-repo paths** — `DP_path` / `DP_dir` (`${DIFFUSION_POLICY_ROOT}`, or
+- **Sibling-repo paths** — `DP_path` (`${DIFFUSION_POLICY_ROOT}`, or
   `${SPHERICAL_DP_ROOT}` in `*_sdp.yaml`), `primitive_learning_path`
-  (`${PRIMITIVE_LEARNING_ROOT}`, equiv_primitive), `env_dir` (`${DEXMIMICGEN_ROOT}`),
-  `contact_prediction_root` (`${CONTACT_PREDICTION_ROOT}`). Point each macro at
-  your checkout in `.env` (see [Installation](Installation.md) step 5).
+  (`${PRIMITIVE_LEARNING_ROOT}`). Both default to their vendored submodules (see
+  [Installation](Installation.md) step 5).
 - **`LfD_params`** — `lfd_alg` (`DP` or `SDP`), `env_type: dmg`, and `DP_input`
   (per-task checkpoint paths).
 - **`sg_params`** — learned-skill checkpoints: `equi_ckpt_name` (equiv_primitive grasp
@@ -59,13 +62,19 @@ Per-task configuration lives under
 
 ## Checkpoints
 
-Checkpoint locations are config-driven (`DP_input`, `equi_ckpt_name`,
-`biop_ckpt_name`), typically under the Diffusion-Policy repo's
-`data/outputs/<task>/` directory. Override per run without editing YAML:
+The two runnable DMG configs reference their checkpoints under
+`${REPO_ROOT}/ckpt/dmg_<task>/{equi.pth,biop.pth,policy.ckpt}`, fetched by:
+
+```bash
+python download_ckpts.py            # both tasks
+python download_ckpts.py --task threading
+```
+
+Override per run without editing YAML (both expand `${VAR}`/`~`):
 
 - `--dp_ckpt PATH` — Diffusion-Policy checkpoint.
 - `--sg equi_ckpt_name=PATH` — equiv_primitive keypoint checkpoint (and any other
-  `sg_params` field).
+  `sg_params` field), e.g. `--sg equi_ckpt_name='${REPO_ROOT}/ckpt/dmg_threading/equi.pth'`.
 
 ## Environment variables (runtime)
 

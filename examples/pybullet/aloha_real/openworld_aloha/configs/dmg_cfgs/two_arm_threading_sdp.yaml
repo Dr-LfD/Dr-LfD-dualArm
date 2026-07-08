@@ -1,3 +1,5 @@
+# EXPERIMENTAL — Spherical Diffusion Policy variant (needs ${SPHERICAL_DP_ROOT},
+# ${DEXMIMICGEN_ROOT} + unshipped SDP ckpts). Supported route: the non-_sdp config.
 use_gui: False
 robot_name: 'pandadual'
 vid_save_path: 'lfd_tamp_vids'

@@ -4,9 +4,10 @@ This guide covers the **simulation** route (robosuite/mujoco DMG tasks). For the
 real-robot stack (segmentation perception, GPD grasping, ROS), see
 [Real robot](Real_robot.md).
 
-All paths below are relative to the repo root or use `${WS_ROOT}` (your external
-workspace holding the sibling dependency repos) and `${REPO_ROOT}` (this repo).
-Set these via the `.env` file (see [Configuration](Configuration.md)).
+Paths below are relative to the repo root or use `${REPO_ROOT}` (this repo, auto-set)
+and `${WS_ROOT}` (your external workspace, only for real-robot data). The
+learned-policy dependencies are vendored submodules and need no `.env` for the sim
+route (see [Configuration](Configuration.md)).
 
 ## 1. Clone the repo and submodules
 
@@ -43,14 +44,15 @@ pip install "git+https://github.com/facebookresearch/pytorch3d.git"
 ## 4. dexmimicgen fork
 
 robosuite and robomimic are git-installed by `requirements.txt` (step 3).
-dexmimicgen is the exception — its task configs read scene-graph data through
-`env_dir=${DEXMIMICGEN_ROOT}`, so it must live on disk at that path rather than
-in site-packages:
+dexmimicgen is installed the same way — importing the package registers its
+robosuite envs, so the supported simulation route needs no on-disk checkout or
+`${DEXMIMICGEN_ROOT}`:
 
 ```bash
-git clone https://github.com/JINXER000/dexmimicgen -b playback_3d ${DEXMIMICGEN_ROOT}
-pip install -e ${DEXMIMICGEN_ROOT}
+pip install "git+https://github.com/JINXER000/dexmimicgen@playback_3d"
 ```
+
+(Only the experimental `*_sdp.yaml` configs still reference `${DEXMIMICGEN_ROOT}`.)
 
 If a stale `robosuite` is shadowing the editable install, remove it first:
 
@@ -61,27 +63,23 @@ rm -rf "${SITE}/robosuite"
 
 ## 5. Learned-policy sibling repos
 
-The object-centric primitive-learning repo (`primitive_learning`) ships as a
-submodule of the release umbrella — initialize it from the umbrella checkout:
+The learned-policy code repos — primitive learning (`primitive_learning`), the
+contact predictor (`contact_detector`), and Diffusion-Policy
+(`diffusion_policy_sg`) — ship as submodules of the release umbrella and are
+imported from `sys.path` at runtime (not pip-installed). Step 1's `--recursive`
+clone already populated them; if you cloned without it, initialize them now:
 
 ```bash
-git submodule update --init primitive_learning
+git submodule update --init
 ```
 
-The DMG / Diffusion-Policy skills are imported from sibling repos (added to
-`sys.path` at runtime, not pip-installed). Each is located by its own macro set
-in `.env` (see [Configuration](Configuration.md)). For a development checkout or
-a local override, clone anywhere and point the macro at it:
+`${PRIMITIVE_LEARNING_ROOT}`, `${CONTACT_PREDICTION_ROOT}` and
+`${DIFFUSION_POLICY_ROOT}` default to these vendored submodules automatically —
+no `.env` entry needed unless you want to point at a separate development
+checkout.
 
-```bash
-git clone https://github.com/Dr-LfD/DP_customized.git <DIFFUSION_POLICY_ROOT>
-git clone https://github.com/Dr-LfD/Equiv_primitive.git <PRIMITIVE_LEARNING_ROOT>
-# .env:
-export DIFFUSION_POLICY_ROOT=/abs/path/to/Diffusion-Policy
-export PRIMITIVE_LEARNING_ROOT=/abs/path/to/Equiv_primitive
-```
-
-The SDP variants (`*_sdp.yaml`) additionally use `${SPHERICAL_DP_ROOT}`.
+The experimental SDP variants (`*_sdp.yaml`) additionally use
+`${SPHERICAL_DP_ROOT}` and `${DEXMIMICGEN_ROOT}`.
 
 equiv_primitive's graph-network extensions are built against the torch+CUDA installed in
 step 3:
@@ -106,9 +104,18 @@ Rebuild IKFast whenever you change the Python environment.
 
 ## 7. Checkpoints
 
-Place the DMG / Diffusion-Policy checkpoints for the two tasks where the task
-configs expect them (see [Configuration](Configuration.md) for the config layout
-and the `--dp_ckpt` / `--sg` runtime overrides).
+Download the DMG / Diffusion-Policy checkpoints for the two tasks into
+`${REPO_ROOT}/ckpt/`, where the task configs already expect them:
+
+```bash
+python download_ckpts.py                  # both tasks (~2.9 GB)
+python download_ckpts.py --task threading # threading only
+```
+
+No manual placement is needed — the configs reference
+`${REPO_ROOT}/ckpt/dmg_<task>/{equi.pth,biop.pth,policy.ckpt}`. See
+[Configuration](Configuration.md) for the layout and the `--dp_ckpt` / `--sg`
+runtime overrides.
 
 You are now ready to run the simulation examples — see [Quickstart](Quickstart.md).
 

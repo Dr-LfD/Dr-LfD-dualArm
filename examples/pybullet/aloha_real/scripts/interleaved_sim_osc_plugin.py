@@ -1112,7 +1112,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--sg', action='append', default=[], metavar='KEY=VALUE',
         help='Override an sg_params field (repeatable), e.g. '
-             '--sg biop_ckpt_name=logs/train/dmg_threading/ckpt_perskill_jpose_near.pth'
+             "--sg equi_ckpt_name='${REPO_ROOT}/ckpt/dmg_threading/equi.pth'"
     )
     parser.add_argument(
         '--dp_ckpt', type=str, default=None,
@@ -1129,19 +1129,20 @@ if __name__ == '__main__':
     from repo_paths import load_yaml
     parameters = load_yaml(yaml_path)
 
-    # In-memory checkpoint overrides for sweeps; the DMG route consumes this
-    # parameters dict directly (no YAML re-read). Numeric values are coerced to
-    # float; a path like biop_ckpt_name stays a string.
+    # CLI overrides bypass load_yaml's ${VAR}/~ expansion, so expand them here;
+    # numeric values are coerced to float, paths stay strings.
     for kv in args.sg:
         key, val = kv.split('=', 1)
         try:
             val = float(val)
         except ValueError:
-            pass
+            val = os.path.expanduser(os.path.expandvars(val))
         parameters['sg_params'][key] = val
 
     if args.dp_ckpt is not None:
-        parameters['LfD_params']['DP_input'][task_name] = args.dp_ckpt
+        parameters['LfD_params']['DP_input'][task_name] = os.path.expanduser(
+            os.path.expandvars(args.dp_ckpt)
+        )
 
     planner = DMG_OSC_planner(parameters)
     exe_info = planner()
