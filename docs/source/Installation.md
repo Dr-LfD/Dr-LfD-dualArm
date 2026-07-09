@@ -43,16 +43,20 @@ pip install "git+https://github.com/facebookresearch/pytorch3d.git"
 
 ## 4. dexmimicgen fork
 
-robosuite and robomimic are git-installed by `requirements.txt` (step 3).
-dexmimicgen is installed the same way — importing the package registers its
-robosuite envs, so the supported simulation route needs no on-disk checkout or
-`${DEXMIMICGEN_ROOT}`:
+dexmimicgen must be installed **editable from a clone**: the DMG runners import
+its top-level `scripts` and `dexmimicgen.utils` packages at runtime, which a plain
+wheel install does not expose. Importing dexmimicgen also registers its robosuite
+envs.
 
 ```bash
-pip install "git+https://github.com/JINXER000/dexmimicgen@playback_3d"
+git clone https://github.com/JINXER000/dexmimicgen -b playback_3d <path>
+pip install -e <path> --config-settings editable_mode=compat
 ```
 
-(Only the experimental `*_sdp.yaml` configs still reference `${DEXMIMICGEN_ROOT}`.)
+`editable_mode=compat` puts the repo root on `sys.path` so the bare top-level
+`scripts` package resolves — modern (PEP 660) editable installs otherwise expose
+only declared packages. No `${DEXMIMICGEN_ROOT}` env var is needed; that macro is
+only referenced by the experimental `*_sdp.yaml` configs.
 
 If a stale `robosuite` is shadowing the editable install, remove it first:
 
@@ -88,6 +92,32 @@ step 3:
 pip install torch-scatter torch-cluster torch-geometric \
     -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
 ```
+
+### Submodule runtime dependencies
+
+Because the submodules are imported from `sys.path` rather than pip-installed,
+`requirements.txt` (step 3) does **not** pull their own dependencies. Their
+authoritative dependency lists are `primitive_learning/setup.py` and
+`diffusion_policy_sg/conda_environment.yaml`; the extras actually needed to run
+the DMG tasks are:
+
+```bash
+pip install wandb transformers          # equiv_primitive: skill/task BERT + logging
+```
+
+Two need special handling:
+
+- **gym** is pinned to `0.21.0` by `diffusion_policy_sg`, and its sdist fails to
+  build under modern setuptools. Install it isolated:
+  ```bash
+  pip install "setuptools<66" "wheel<0.40" && pip install gym==0.21.0
+  ```
+- **pytorch3d** must match your torch/CUDA build. No prebuilt wheel exists for the
+  `torch 2.1.0+cu121` stack above, so build it from source (needs the CUDA
+  toolkit / `nvcc`; install `cuda-nvcc` from conda if the system lacks it):
+  ```bash
+  pip install "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.6"
+  ```
 
 ## 6. Build native components
 
