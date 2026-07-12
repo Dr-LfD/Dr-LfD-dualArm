@@ -59,11 +59,9 @@ Each run records a video under `lfd_tamp_vids/` and prints
 The learned-policy and perception components used by DR-LfD are maintained as
 separate modules:
 
-- [Diffusion Policy with scene graphs](https://github.com/Dr-LfD/diffusion_policy_sg)
-  — visuomotor diffusion-policy learning conditioned on scene-graph information.
+- [Customized Diffusion Policy](https://github.com/Dr-LfD/diffusion_policy_sg)
+  —  diffusion-policy trained only on bimanual operation.
 - [Contact Prediction](https://github.com/Dr-LfD/ContactPrediction) — per-edge
-  wrist-camera contact prediction for dual-arm demonstrations and policy
-  rollouts.
+  wrist-camera contact prediction.
 - [Equivariant Primitive Learning](https://github.com/Dr-LfD/Equiv_primitive)
-  — SIM(3)-equivariant diffusion policies for object-centric manipulation
-  primitives.
+  — SIM(3)-equivariant diffusion model for object-centric  primitives.
