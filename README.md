@@ -54,10 +54,16 @@ Each run records a video under `lfd_tamp_vids/` and prints
 `Execution results: {... 'task_success': True/False ...}`. See
 [Quickstart](docs/source/Quickstart.md) for prerequisites and troubleshooting.
 
-## TODO
+## Related modules
 
-- [x] TAMP for DMG simulation
-- [x] TAMP for real ALOHA robot (constraint check + contact detection)
-- [ ] Policy learning
-- [x] Object-centric primitive learning
-- [x] Contact detector
+The learned-policy and perception components used by DR-LfD are maintained as
+separate modules:
+
+- [Diffusion Policy with scene graphs](https://github.com/Dr-LfD/diffusion_policy_sg)
+  — visuomotor diffusion-policy learning conditioned on scene-graph information.
+- [Contact Prediction](https://github.com/Dr-LfD/ContactPrediction) — per-edge
+  wrist-camera contact prediction for dual-arm demonstrations and policy
+  rollouts.
+- [Equivariant Primitive Learning](https://github.com/Dr-LfD/Equiv_primitive)
+  — SIM(3)-equivariant diffusion policies for object-centric manipulation
+  primitives.
