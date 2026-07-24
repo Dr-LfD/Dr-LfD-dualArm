@@ -86,12 +86,15 @@ The experimental SDP variants (`*_sdp.yaml`) additionally use
 `${SPHERICAL_DP_ROOT}` and `${DEXMIMICGEN_ROOT}`.
 
 equiv_primitive's graph-network extensions are built against the torch+CUDA installed in
-step 3:
+step 3. These wheels must match the exact `torch 2.1.0+cu121` build, so pin them:
 
 ```bash
-pip install torch-scatter torch-cluster torch-geometric \
+pip install torch-scatter==2.1.2 torch-cluster==1.6.3 torch-geometric==2.6.1 \
     -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
 ```
+
+The `per_skill` sim policy never imports these — the SDP / EquiformerV2 stack (real
+robot) is the first consumer — so a sim-only install can skip this step.
 
 ### Submodule runtime dependencies
 

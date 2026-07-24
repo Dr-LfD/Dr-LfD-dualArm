@@ -241,6 +241,7 @@ class DMG_OSC_planner(object):
             # Route OSC EE-trajectory generation to the streams so
             # get_imitate_traj_fn / get_plan_motion_fn take their ee_traj_mode branch.
             'ee_traj_mode': True,
+            'use_gui': self.para['use_gui'],
         }
 
     # ------------------------------------------------------------------

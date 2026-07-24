@@ -110,9 +110,17 @@ class real_openworld(object):
             self.para, self.skill_names, self._skillwise_sgs
         )
 
+        # Flatten the per-prefix scene graphs into a single skill-keyed union. Each
+        # prefix contributes a 'bimanual_{prefix}' scene graph plus its unimanual
+        # grasp keys; the schema layer and the TAMP streams both key on these skill
+        # names, so passing the prefix keys instead would hide every bimanual skill.
+        self._skillwise_sgs = {}
+        for prefix_key in self.equivSkill_info_dict:
+            self._skillwise_sgs.update(self.equivSkill_info_dict[prefix_key]['skillwise_sgs'])
+
         self.schema_skill_metas = load_runtime_schema_metadata(
             self.para.get('skill_yaml_paths') or [],
-            env_names=list(self.equivSkill_info_dict.keys()),
+            env_names=list(self._skillwise_sgs.keys()),
             root_path=root_path,
         )["skill_meta_map"]
 
@@ -245,6 +253,7 @@ class real_openworld(object):
                 primitive_learning_path=para['primitive_learning_path'],
                 existing_domain_path=para['existing_domain_path'],
                 existing_stream_path=para['existing_stream_path'],
+                use_gui=para['use_gui'],
             )
             _t0 = time.time()
             session = plan_online_session(self.para, self.robot_entity, belief, **tamp_kwargs)
@@ -281,6 +290,7 @@ class real_openworld(object):
                 equivSkill_info_dict=self.equivSkill_info_dict,
                 existing_domain_path=para['existing_domain_path'],
                 existing_stream_path=para['existing_stream_path'],
+                use_gui=para['use_gui'],
             )
             print(f"Duration of TAMP: {duration_tamp}")
 

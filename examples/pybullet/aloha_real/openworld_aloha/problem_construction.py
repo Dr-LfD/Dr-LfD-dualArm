@@ -405,7 +405,7 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
                 # qpose and grasp learned from diffusion
                 stream_map['sample-biop-keypose'] = from_gen_fn(get_imitate_traj_fn(
                     robot, equivSkill_info_dict=equivSkill_info_dict, prefix_key=env_key,
-                    skill_name=skill_name, fixed_obj=static_obstacles, **kwargs))
+                    skill_name=skill_name, fixed_obj=obstacles, **kwargs))
                 stream_info['sample-biop-keypose'] = StreamInfo(overhead=5e1)
             elif skill_kw in uni_kw:
                 stream_mode = equivSkill_info_dict[env_key]['obj_centric_mode']
@@ -413,7 +413,7 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
                 uni_stream_name = f'sample-{skill_kw}-{stream_mode}'
                 stream_map[uni_stream_name] = from_gen_fn(get_imitate_traj_fn(
                     robot, equivSkill_info_dict=equivSkill_info_dict, prefix_key=env_key,
-                    skill_name=skill_name, fixed_obj=static_obstacles, **kwargs))
+                    skill_name=skill_name, fixed_obj=obstacles, **kwargs))
                 stream_info[uni_stream_name] = StreamInfo(overhead=1e1)
             else:
                 raise ValueError(f"Unknown skill type for skill {skill_name!r}")
@@ -436,7 +436,7 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
             equivSkill_info_dict=equivSkill_info_dict,
             prefix_key=env_key,
             skill_name=skill_name,
-            fixed_obj=static_obstacles,
+            fixed_obj=obstacles,
             eff_grasps=spec.get("eff_grasps", []),
             **kwargs,
         ))

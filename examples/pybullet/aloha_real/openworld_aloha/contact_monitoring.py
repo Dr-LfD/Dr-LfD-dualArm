@@ -574,10 +574,9 @@ class ContactPredictorWrapper:
                 continue
             debug_path = os.path.join(repo_root, f"debug_predict_{obs_name}.png")
             cv2.imwrite(debug_path, cv2.cvtColor(img_uint8, cv2.COLOR_RGB2BGR))
-    
+
     def _predict_label(self, runtime, det):
         obs_dict = self._build_obs_dict(runtime, det)
-        self._save_predict_debug_images(runtime, obs_dict)
         raw = float(self._get_runtime_session().predict_label(runtime, obs_dict))
         # thr = float(
         #     det["contact_label_threshold"]

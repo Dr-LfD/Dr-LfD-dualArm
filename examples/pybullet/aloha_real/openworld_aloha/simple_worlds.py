@@ -101,7 +101,7 @@ def load_scene(body_names, movable_bodies, stackable_bodies, obj_info_list = [],
             obj = load_model(SINK_URDF, pose=Pose(Point(x=-0.25, y = -0.0, z = -0.02)), fixed_base=True)
             stackable_bodies.append(obj)
         elif obj_name =='gearbox':
-            obj = load_model(SINK_URDF, pose=Pose(Point(x=0, y = 0.00, z = 0.01)), fixed_base=True, scale=0.5)
+            obj = load_model(SINK_URDF, pose=Pose(Point(x=0, y = 0.00, z = 0.02)), fixed_base=True, scale=0.5)
         elif obj_name == 'lowerright_pad':
             obj = load_model(SINK_URDF, pose=Pose(Point(x=0.3, y = -0.2, z = -0.02)), fixed_base=True, scale=0.6)
             stackable_bodies.append(obj)

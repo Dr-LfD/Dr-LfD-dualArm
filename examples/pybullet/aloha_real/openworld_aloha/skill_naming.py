@@ -50,25 +50,46 @@ def policy_skill_name(skill_name):
     return skill_name
 
 
-def resolve_policy_skill_name(skill_name, available_keys=None):
-    """Resolve a schema skill name to the key the loaded model actually carries.
+_PRIMITIVE_KEYWORDS = ("grasp", "pick", "place", "drop", "release", "detach", "lift")
 
-    Handles object-order mismatches between schema names and per-skill checkpoints.
+
+def _is_sub_multiset(sub_tokens, super_tokens):
+    """True if every token appears in super_tokens at least as often as in sub_tokens."""
+    return all(sub_tokens.count(tok) <= super_tokens.count(tok) for tok in set(sub_tokens))
+
+
+def resolve_policy_skill_name(skill_name, available_keys=None):
+    """Resolve a schema skill name to the embedding key a checkpoint carries.
+
+    Schema names may append grounding-only tokens the checkpoint omits (e.g. the
+    placement surface in ``place_cup_table`` vs. the trained ``place_cup``) and may
+    order object tokens differently. An exact key always wins; otherwise resolve to
+    the unique, most-specific checkpoint key that shares the skill's primitive
+    keyword and whose tokens are a sub-multiset of the schema name's. An ambiguous
+    match resolves to nothing so the caller fails loudly rather than silently
+    invoking the wrong policy.
     """
     name = policy_skill_name(skill_name)
     if not available_keys or name in available_keys:
         return name
-    if "_place_" not in name:
+
+    name_tokens = name.split("_")
+    primitives = set(name_tokens) & set(_PRIMITIVE_KEYWORDS)
+    if len(primitives) != 1:
         return name
-    arm, _, rest = name.partition("_place_")
-    target = sorted(rest.split("_"))
-    for key in available_keys:
-        if "_place_" not in key:
-            continue
-        key_arm, _, key_rest = key.partition("_place_")
-        if key_arm == arm and sorted(key_rest.split("_")) == target:
-            return key
-    return name
+    primitive = next(iter(primitives))
+
+    candidates = [
+        key for key in available_keys
+        if set(key.split("_")) & set(_PRIMITIVE_KEYWORDS) == {primitive}
+        and _is_sub_multiset(key.split("_"), name_tokens)
+    ]
+    if not candidates:
+        return name
+
+    best_len = max(len(key.split("_")) for key in candidates)
+    best = [key for key in candidates if len(key.split("_")) == best_len]
+    return best[0] if len(best) == 1 else name
 
 
 def resolve_skill_env_key(skill_name, equiv_skill_info_dict):

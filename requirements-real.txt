@@ -1,0 +1,4 @@
+# Real-robot-only Python dependencies for the ALOHA DP evaluator.
+# Install after the base dr-lfd environment and before launching --mode real.
+dm-env==1.6
+modern-robotics==1.1.1

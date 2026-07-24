@@ -1,6 +1,3 @@
-# contact_predictor_checkpoint: 'data/outputs/2026.05.11/14.45.50_train_keypose_transformer_handoff_cup_multi_edge_wristview/checkpoints/latest.ckpt'
-contact_predictor_checkpoint: '${REPO_ROOT}/ckpt/contact_ckpt/cup_right_arm.ckpt'
-
 use_schema: true
 domain_path: 'examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_changes_domain.pddl'
 stream_path: 'examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_changes_stream.pddl'
@@ -55,3 +52,6 @@ LfD_params:
   DP_path: '${DIFFUSION_POLICY_ROOT}/'
   DP_input: 
     bimanual_handoff_cup_per_skill: '${REPO_ROOT}/ckpt/dp_ckpts/handoff_cup/long_chunk/cluttered.ckpt'
+
+contact_predictor_checkpoint: '${REPO_ROOT}/ckpt/contact_ckpt/cup_right_arm.ckpt'
+

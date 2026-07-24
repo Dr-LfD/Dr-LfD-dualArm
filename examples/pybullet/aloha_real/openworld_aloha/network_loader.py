@@ -9,31 +9,41 @@ def get_lfd_wrapper(cfg,  with_planning = True):
 
 
     checkpoint_dict = LfD_params['DP_input']
-    if LfD_params['lfd_alg'] == 'ACT':
-        raise NotImplementedError("multiskill ACT is not implemented")
-        # include ACT
-        act_path = os.path.join(root_path, '..', 'ACT')
-        sys.path.append(act_path)
-        os.chdir(act_path)
-        from eval_act_wrapper import ACT_Evaluator
-
-        self.lfd = ACT_Evaluator(task_name = para['task_name'], with_planning=True)
-        lfd_env = None
-    elif LfD_params['lfd_alg'] == 'DP':
+    if LfD_params['lfd_alg'] == 'DP':
         # include DP
-        dp_path = LfD_params['DP_path']
-        sys.path.append(dp_path)
+        dp_path = os.path.abspath(LfD_params['DP_path'])
+        if not os.path.isdir(dp_path):
+            raise FileNotFoundError(
+                f"DP_path does not exist: {dp_path!r}. "
+                "Set DIFFUSION_POLICY_ROOT to the Diffusion-Policy checkout."
+            )
+        if dp_path in sys.path:
+            sys.path.remove(dp_path)
+        sys.path.insert(0, dp_path)
         os.chdir(dp_path)
         env_type = LfD_params['env_type']
         output_path = os.path.join(dp_path, LfD_params['DP_output'])
         if not os.path.exists(output_path):
             os.makedirs(output_path)
 
-        if env_type != 'dmg':
-            raise NotImplementedError(f"env_type {env_type!r} is no longer supported under lfd_alg='DP'; only 'dmg' remains")
-        from iterative_dmg_runner import Robosuite_Evaluator as DP_wrapper
+        if env_type == 'real':
+            from dp_tamp_wrapper import DP_Evaluator as DP_wrapper
+            lfd_wrapper = DP_wrapper(
+                checkpoint_dict=checkpoint_dict,
+                output=output_path,
+                max_timesteps=LfD_params['DP_max_timesteps'],
+                num_inference_steps=LfD_params['DP_num_inference_steps'],
+                scale=LfD_params['DP_scale'],
+                with_planning=with_planning,
+            )
+        elif env_type == 'dmg':
+            from iterative_dmg_runner import Robosuite_Evaluator as DP_wrapper
 
-        lfd_wrapper = DP_wrapper(checkpoint_dict = checkpoint_dict, output = output_path, max_timesteps = LfD_params['DP_max_timesteps'], num_inference_steps = LfD_params['DP_num_inference_steps'], scale = LfD_params['DP_scale'], with_planning = True, record = LfD_params['vid_record'], render_obs_keys = LfD_params["render_obs_keys"])
+            lfd_wrapper = DP_wrapper(checkpoint_dict = checkpoint_dict, output = output_path, max_timesteps = LfD_params['DP_max_timesteps'], num_inference_steps = LfD_params['DP_num_inference_steps'], scale = LfD_params['DP_scale'], with_planning = True, record = LfD_params['vid_record'], render_obs_keys = LfD_params["render_obs_keys"])
+        else:
+            raise ValueError(
+                f"Unsupported DP env_type {env_type!r}; expected one of: dmg, real"
+            )
     elif LfD_params['lfd_alg'] == 'SDP':
         # include DP
         dp_path = LfD_params['DP_path']
