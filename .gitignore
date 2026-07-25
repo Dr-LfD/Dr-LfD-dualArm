@@ -42,6 +42,7 @@ ref_doc/*
 *.log
 *.tsv
 *.csv
+*.npz
 # HF-downloaded checkpoints (download_ckpts.py); *.pth is already ignored,
 # this rule chiefly covers policy.ckpt
 /ckpt/

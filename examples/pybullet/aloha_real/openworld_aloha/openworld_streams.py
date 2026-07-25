@@ -460,35 +460,83 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
         current_skill_info = equivSkill_info_dict[env_key_for_sk]
         current_tamp_wrapper = current_skill_info['tamp_wrapper']
         current_biop_wrapper = current_skill_info.get('biop_wrapper', current_tamp_wrapper)
+        # Ground truth from the ckpt (1=keypose, N=jtraj), not inferred from output shape.
+        expected_horizon = current_biop_wrapper.get_jpose_horizon()
+        if expected_horizon < 1:
+            raise ValueError(
+                f"biop wrapper for skill {sk!r} reports jpose_horizon={expected_horizon}; expected >= 1"
+            )
+
+        def _frame_confs(arm1_jpose, arm2_jpose):
+            if len(arm1_jpose) > robot.arm_dof + 1 and len(arm2_jpose) > robot.arm_dof + 1: ## full jpose
+                return (GroupConf(robot, arm1_side + '_robot', positions=arm1_jpose),
+                        GroupConf(robot, arm2_side + '_robot', positions=arm2_jpose))
+            return (GroupConf(robot, arm1, positions=arm1_jpose),
+                    GroupConf(robot, arm2, positions=arm2_jpose))
+
+        obstacle_bodies = [
+            o.body if hasattr(o, 'body') else o
+            for o in fixed_obj
+        ]
 
         _seed_counter = 42
         while True:
-            # #for aloha, output unconditional jpose.
-            dual_jpose = current_biop_wrapper.gen_uncond_jposes(arm1, arm2, sk, seed=_seed_counter)
-            arm1_jpose, arm2_jpose = robot.get_valid_dualpose(dual_jpose)
-
-
-            if len(arm1_jpose) > robot.arm_dof + 1 and len(arm2_jpose) > robot.arm_dof + 1: ## full jpose
-                arm1_conf = GroupConf(robot, arm1_side + '_robot', positions=arm1_jpose)
-                arm2_conf = GroupConf(robot, arm2_side + '_robot', positions=arm2_jpose)
+            # #for aloha, output unconditional jpose (last frame = initiation keypose).
+            dual_jpose = np.asarray(
+                current_biop_wrapper.gen_uncond_jposes(arm1, arm2, sk, seed=_seed_counter)
+            )
+            if expected_horizon == 1:
+                if dual_jpose.ndim != 2 or dual_jpose.shape[0] != 2:
+                    raise ValueError(
+                        f"biop wrapper for skill {sk!r} declares jpose_horizon=1 (keypose) "
+                        f"but gen_uncond_jposes returned shape {dual_jpose.shape}; expected (2, dof)"
+                    )
+                frames = [dual_jpose]
             else:
-                arm1_conf = GroupConf(robot, arm1, positions = arm1_jpose)
-                arm2_conf = GroupConf(robot, arm2, positions = arm2_jpose)
-            arm1_conf.assign()
-            arm2_conf.assign()
-            if fixed_obj:
-                obstacle_bodies = [
-                    o.body if hasattr(o, 'body') else o
-                    for o in fixed_obj
-                ]
-                if pairwise_collisions(robot, obstacle_bodies, **kwargs):
-                    if use_gui:
-                        print(
-                            f"[get_bimanual_jposes] collision with fixed objects for skill {sk}, resampling"
-                        )
-                    _seed_counter += 1
-                    continue
+                if dual_jpose.ndim != 3 or dual_jpose.shape[:2] != (expected_horizon, 2):
+                    raise ValueError(
+                        f"biop wrapper for skill {sk!r} declares jpose_horizon={expected_horizon} "
+                        f"but gen_uncond_jposes returned shape {dual_jpose.shape}; "
+                        f"expected ({expected_horizon}, 2, dof)"
+                    )
+                frames = list(dual_jpose)
+
+            arm1_path, arm2_path = [], []
+            for frame in frames:
+                arm1_jpose, arm2_jpose = robot.get_valid_dualpose(frame)
+                arm1_path.append(arm1_jpose)
+                arm2_path.append(arm2_jpose)
+
+            # Check every frame; leaves the confs (and live robot) at the FINAL frame.
+            collided = False
+            for arm1_jpose, arm2_jpose in zip(arm1_path, arm2_path):
+                arm1_conf, arm2_conf = _frame_confs(arm1_jpose, arm2_jpose)
+                arm1_conf.assign()
+                arm2_conf.assign()
+                if obstacle_bodies and pairwise_collisions(robot, obstacle_bodies, **kwargs):
+                    collided = True
+                    break
+            if collided:
+                if use_gui:
+                    print(
+                        f"[get_bimanual_jposes] collision with fixed objects for skill {sk}, resampling"
+                    )
+                _seed_counter += 1
+                continue
             graph_state = Graphstate(robot, skillwise_sgs_flattend[sk], skill_name = sk)
+            if expected_horizon > 1:
+                arm_dofs = {len(robot.get_group_joints(arm1)), len(robot.get_group_joints(arm2))}
+                if {len(arm1_path[0]), len(arm2_path[0])} != arm_dofs:
+                    raise ValueError(
+                        "biop approach frames must be arm-only joint values; got widths "
+                        f"{(len(arm1_path[0]), len(arm2_path[0]))} for groups {arm1}/{arm2}"
+                    )
+                graph_state.biop_arm_trajs = {
+                    arm1: GroupTrajectory(robot, arm1, arm1_path, client=robot.client,
+                                          joint_space_exec=True),
+                    arm2: GroupTrajectory(robot, arm2, arm2_path, client=robot.client,
+                                          joint_space_exec=True),
+                }
 
             # Compute post-grasp for each held object using Phi_tau.
             # _eff_grasps_mapping aligns 1:1 with the (obj, pose) stream args.

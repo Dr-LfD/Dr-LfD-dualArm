@@ -81,7 +81,7 @@ def split_sequence_per_arm(seq, pause_num=5, sides=None):
                                           ee_path=ee_path,
                                           ee_link=getattr(cmd, "ee_link", None),
                                           steps_per_waypoint=getattr(cmd, "steps_per_waypoint", 1))
-                for attr in ("target_gripper_positions", "freeze_gripper"):
+                for attr in ("target_gripper_positions", "freeze_gripper", "joint_space_exec"):
                     if hasattr(cmd, attr):
                         setattr(new_cmd, attr, getattr(cmd, attr))
                 per_arm_queue[arm_side].append(new_cmd)

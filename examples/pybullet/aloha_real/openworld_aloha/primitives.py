@@ -619,7 +619,8 @@ class Trajectory(Command):
 class GroupTrajectory(Trajectory):
     def __init__(self, robot, group, path, attachments=[], *args,
                  ee_path=None, ee_link=None, steps_per_waypoint=1,
-                 freeze_gripper=False, target_gripper_positions=None, **kwargs):
+                 freeze_gripper=False, target_gripper_positions=None,
+                 joint_space_exec=False, **kwargs):
         joints = robot.get_group_joints(group)
         super(GroupTrajectory, self).__init__(robot, joints, path, *args, **kwargs)
         self.group = group
@@ -631,6 +632,8 @@ class GroupTrajectory(Trajectory):
         # OSC-execution hints set by the motion planner (see _annotate_motion_command).
         self.freeze_gripper = bool(freeze_gripper)
         self.target_gripper_positions = target_gripper_positions
+        # Must execute as absolute joint commands, not FK->OSC replay (biop approach).
+        self.joint_space_exec = bool(joint_space_exec)
 
     def set_executed(self, val):
         self.executed = val
@@ -642,12 +645,18 @@ class GroupTrajectory(Trajectory):
         return GroupTrajectory(self.robot, self.group, self.path,
                                attachments=self.attachments,
                                ee_path=self.ee_path, ee_link=self.ee_link,
-                               steps_per_waypoint=self.steps_per_waypoint)
+                               steps_per_waypoint=self.steps_per_waypoint,
+                               freeze_gripper=self.freeze_gripper,
+                               target_gripper_positions=self.target_gripper_positions,
+                               joint_space_exec=self.joint_space_exec)
 
     def switch_client(self, robot):
         return GroupTrajectory(robot, self.group, self.path, client=robot.client,
                                ee_path=self.ee_path, ee_link=self.ee_link,
-                               steps_per_waypoint=self.steps_per_waypoint)
+                               steps_per_waypoint=self.steps_per_waypoint,
+                               freeze_gripper=self.freeze_gripper,
+                               target_gripper_positions=self.target_gripper_positions,
+                               joint_space_exec=self.joint_space_exec)
 
     def conf(self, positions):
         return GroupConf(self.robot, self.group, positions=positions, client=self.client)
@@ -792,15 +801,30 @@ class GripperAssigner(Command):
 class Graphstate(Command):
     def __init__(self, robot, sg_dict, skill_name = None) -> None:
         self.robot = robot
-        self.skill_name = skill_name    
+        self.skill_name = skill_name
         self.sg_dict = sg_dict
         self.commands = None  # built lazily in iterate()
+        # Optional biop initiation approach {arm_group: GroupTrajectory}, if attached.
+        self.biop_arm_trajs = None
+
+    def _carry_biop_trajs(self, other, transfer):
+        if self.biop_arm_trajs is not None:
+            other.biop_arm_trajs = {
+                arm: transfer(traj) for arm, traj in self.biop_arm_trajs.items()
+            }
+        return other
 
     def switch_client(self, robot):
-        return Graphstate(robot, self.sg_dict, skill_name=self.skill_name)
+        return self._carry_biop_trajs(
+            Graphstate(robot, self.sg_dict, skill_name=self.skill_name),
+            lambda traj: traj.switch_client(robot),
+        )
 
     def copy(self):
-        return Graphstate(self.robot, {'pre_sg': None, 'eff_sg': None}, skill_name = self.skill_name)
+        return self._carry_biop_trajs(
+            Graphstate(self.robot, {'pre_sg': None, 'eff_sg': None}, skill_name = self.skill_name),
+            lambda traj: traj.copy(),
+        )
 
     def _build_commands(self):
         """Build commands lazily so that grasps written to eff_sg by other streams are available."""

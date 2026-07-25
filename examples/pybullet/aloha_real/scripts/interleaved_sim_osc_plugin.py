@@ -109,6 +109,11 @@ class DMG_OSC_planner(object):
     GRIPPER_SETTLE_STEPS = 10     #: steps converging on the hold waypoint before closing
     GRIPPER_DWELL_STEPS = 15      #: steps holding after the close so the fingers finish
 
+    #: Joint-space densification of the biop initiation approach (JOINT_POSITION replay).
+    JOINT_APPROACH_STEP_RAD = 0.05
+    JOINT_APPROACH_MAX_SUBSTEPS = 25
+    JOINT_APPROACH_SETTLE_STEPS = 10
+
     def __init__(self, para):
         self.para = para
         self.sg_param = para['sg_params']
@@ -755,13 +760,29 @@ class DMG_OSC_planner(object):
         return ts
 
     def execute_robosuite_plan(self, seq, stop_mode='replan'):
-        """Run `seq` under OSC_POSE abs control, optionally falling back to BC."""
+        """Run `seq` in controller stages (OSC replay, optional JOINT_POSITION approach), falling back to BC."""
         if stop_mode not in {'replan', 'bc'}:
             raise ValueError(f"Unsupported stop_mode: {stop_mode!r}")
 
-        tamp_cmd_gen = self.iterate_process_sequence(self.robot_entity, seq)
+        pre_seq, joint_cmds, post_seq = self._split_joint_space_exec(seq)
+        # Stage generators are created lazily; iterate_process_sequence seeds from the live robot state.
+        stages = [(
+            "OSC_POSE",
+            lambda s=pre_seq: self.iterate_process_sequence(self.robot_entity, s),
+        )]
+        if joint_cmds:
+            stages.append(("JOINT_POSITION",
+                           lambda: self._iterate_joint_approach(joint_cmds)))
+            if post_seq.commands:
+                stages.append((
+                    "OSC_POSE",
+                    lambda s=post_seq: self.iterate_process_sequence(self.robot_entity, s),
+                ))
+
+        stage_index = 0
+        self.lfd.update_controllers(controller_name=stages[0][0], abs_action=True)
+        tamp_cmd_gen = stages[0][1]()
         doing_tamp = True
-        self.lfd.update_controllers(controller_name="OSC_POSE", abs_action=True)
 
         for _ in range(self.lfd.max_timesteps):
             if doing_tamp:
@@ -774,6 +795,13 @@ class DMG_OSC_planner(object):
                     action = next(tamp_cmd_gen)
                     self.replay_tamp_every(action, duration=0.01)
                 except StopIteration:
+                    stage_index += 1
+                    if stage_index < len(stages):
+                        controller_name, make_gen = stages[stage_index]
+                        self.lfd.update_controllers(
+                            controller_name=controller_name, abs_action=True)
+                        tamp_cmd_gen = make_gen()
+                        continue
                     if stop_mode == 'replan':
                         print("perceive and plan next subgoal")
                         return 'replan'
@@ -794,6 +822,134 @@ class DMG_OSC_planner(object):
             self.success = False
 
         return 'success' if self.success else 'fail'
+
+    @staticmethod
+    def _split_joint_space_exec(seq):
+        """Split `seq` into (pre_seq, joint_cmds, post_seq) at its contiguous joint_space_exec block."""
+        flags = [bool(getattr(cmd, 'joint_space_exec', False)) for cmd in seq.commands]
+        if not any(flags):
+            return seq, (), Sequence([], name=f"{seq.name}-post")
+        first = flags.index(True)
+        last = len(flags) - 1 - flags[::-1].index(True)
+        if not all(flags[first:last + 1]):
+            raise ValueError(
+                "joint_space_exec commands must form one contiguous block; "
+                f"got flags {flags}"
+            )
+        commands = list(seq.commands)
+        return (
+            Sequence(commands[:first], name=f"{seq.name}-pre"),
+            tuple(commands[first:last + 1]),
+            Sequence(commands[last + 1:], name=f"{seq.name}-post"),
+        )
+
+    def _iterate_joint_approach(self, joint_cmds):
+        """Yield densified absolute JOINT_POSITION actions for the biop initiation approach."""
+        from examples.pybullet.utils.pybullet_tools.utils import (
+            get_link_pose,
+            link_from_name,
+            set_joint_positions,
+        )
+
+        sides = ['left'] if len(self.sg_param['robots']) == 1 else ['left', 'right']
+        by_side = {}
+        for cmd in joint_cmds:
+            side = cmd.group.split('_')[0]
+            if side in by_side:
+                raise ValueError(f"duplicate joint_space_exec trajectory for side {side!r}")
+            by_side[side] = np.asarray(cmd.path, dtype=float)
+        missing = [side for side in sides if side not in by_side]
+        if missing:
+            raise ValueError(f"joint_space_exec trajectories missing sides {missing}")
+        lengths = {path.shape for path in by_side.values()}
+        if len(lengths) != 1 or next(iter(lengths))[1] != 7:
+            raise ValueError(
+                f"per-arm approach paths must share one (T, 7) shape; got {lengths}"
+            )
+
+        # Re-assert the last commanded grip through the approach; fall back to the live aperture.
+        init_conf = self.lfd.get_cur_jpose_robosuite()
+        grippers = {
+            side: float(self._carried_gripper_cmd.get(
+                side,
+                self.robot_entity.pos2joint_gripper(init_conf[f'{side}_gripper'][0]),
+            ))
+            for side in sides
+        }
+
+        ee_link_idx = {
+            side: link_from_name(
+                self.robot_entity.robot, self.robot_entity.manipulators[side][2],
+                client=self.robot_entity.client,
+            )
+            for side in sides
+        }
+
+        def fk_ee(side, arm_q):
+            arm_joints = self.robot_entity.get_group_joints(f"{side}_arm")
+            set_joint_positions(self.robot_entity.robot, arm_joints, arm_q,
+                                client=self.robot_entity.client)
+            pos, quat = get_link_pose(self.robot_entity.robot, ee_link_idx[side],
+                                      client=self.robot_entity.client)
+            return list(pos) + list(quat)
+
+        def dense_targets():
+            yield {side: by_side[side][0] for side in sides}
+            horizon = next(iter(lengths))[0]
+            for i in range(1, horizon):
+                max_dq = max(
+                    float(np.max(np.abs(by_side[side][i] - by_side[side][i - 1])))
+                    for side in sides
+                )
+                substeps = int(np.clip(np.ceil(max_dq / self.JOINT_APPROACH_STEP_RAD),
+                                       1, self.JOINT_APPROACH_MAX_SUBSTEPS))
+                for alpha in np.linspace(1.0 / substeps, 1.0, substeps):
+                    yield {
+                        side: (1.0 - alpha) * by_side[side][i - 1] + alpha * by_side[side][i]
+                        for side in sides
+                    }
+            final = {side: by_side[side][-1] for side in sides}
+            for _ in range(self.JOINT_APPROACH_SETTLE_STEPS):
+                yield final
+
+        trace = {'commanded_q': [], 'commanded_ee': [], 'achieved_q': []}
+
+        def sample_achieved():
+            cur = self.lfd.get_cur_jpose_robosuite()
+            trace['achieved_q'].append(
+                [v for side in sides for v in cur[f'{side}_arm']]
+            )
+
+        try:
+            stepped = False
+            for target in dense_targets():
+                if stepped:
+                    sample_achieved()  # post-step state of the previous command
+                trace['commanded_q'].append(
+                    [v for side in sides for v in target[side]])
+                trace['commanded_ee'].append(
+                    [v for side in sides for v in fk_ee(side, target[side])])
+                stepped = True
+                yield [
+                    v for side in sides
+                    for v in list(target[side]) + [grippers[side]]
+                ]
+            if stepped:
+                sample_achieved()
+        finally:
+            self._save_joint_approach_trace(trace)
+
+    def _save_joint_approach_trace(self, trace):
+        """Dump the biop approach trace for smoothness/drift verification."""
+        if not trace['commanded_q']:
+            return
+        self._biop_trace_counter = getattr(self, '_biop_trace_counter', 0) + 1
+        npz_path = os.path.join(
+            self.vid_save_path,
+            f"biop_approach_trace_{self._biop_trace_counter:03d}.npz",
+        )
+        np.savez(npz_path, **{k: np.asarray(v, dtype=float) for k, v in trace.items()})
+        print(f"[biop approach] trace saved to {npz_path}")
 
     def iterate_process_sequence(self, robot_entity, seq):
         """Yield per-step OSC abs actions, 7-D ``[pos(3), axisangle(3), gripper(1)]``

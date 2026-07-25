@@ -9,7 +9,7 @@ from examples.pybullet.aloha_real.openworld_aloha.openworld_streams import (
     get_plan_pick_fn,
     get_plan_place_fn,
 )
-from examples.pybullet.aloha_real.openworld_aloha.primitives import Sequence
+from examples.pybullet.aloha_real.openworld_aloha.primitives import GroupConf, Sequence
 from examples.pybullet.aloha_real.openworld_aloha.symbolic_utils import search_facts
 
 
@@ -446,14 +446,42 @@ def _execute_bioperation(action, current_state, robot_entity, static_environment
     left_conf = action.args[3]
     right_conf = action.args[4]
     graph_state = action.args[-1]
+    current_conf1 = _current_conf_for_arm(current_state, arm1)
+    current_conf2 = _current_conf_for_arm(current_state, arm2)
+
+    # With an approach attached, connectors target its FIRST frame, not the keypose.
+    biop_arm_trajs = getattr(graph_state, "biop_arm_trajs", None)
+    if biop_arm_trajs is not None:
+        missing = [arm for arm in (arm1, arm2) if arm not in biop_arm_trajs]
+        if missing:
+            raise ValueError(
+                f"biop_arm_trajs missing arms {missing}; got {tuple(biop_arm_trajs)}"
+            )
+        connector_target1 = GroupConf(
+            robot_entity, arm1, positions=biop_arm_trajs[arm1].path[0])
+        connector_target2 = GroupConf(
+            robot_entity, arm2, positions=biop_arm_trajs[arm2].path[0])
+        approach = Sequence(
+            [biop_arm_trajs[arm1], biop_arm_trajs[arm2]],
+            name=f"{getattr(graph_state, 'skill_name', 'bioperation')}-approach",
+        )
+    else:
+        connector_target1, connector_target2 = left_conf, right_conf
+        approach = None
+
+    # Re-seat both arms before each connector solve to avoid a mixed-pose collision check.
+    current_conf1.assign()
+    current_conf2.assign()
     left_connector = build_connector_motion(
-        robot_entity, arm1, _current_conf_for_arm(current_state, arm1),
-        left_conf, current_state, static_environment=static_environment,
+        robot_entity, arm1, current_conf1,
+        connector_target1, current_state, static_environment=static_environment,
         collision_distance=collision_distance,
     )
+    current_conf1.assign()
+    current_conf2.assign()
     right_connector = build_connector_motion(
-        robot_entity, arm2, _current_conf_for_arm(current_state, arm2),
-        right_conf, current_state, static_environment=static_environment,
+        robot_entity, arm2, current_conf2,
+        connector_target2, current_state, static_environment=static_environment,
         collision_distance=collision_distance,
     )
     if left_connector is None or right_connector is None:
@@ -465,7 +493,8 @@ def _execute_bioperation(action, current_state, robot_entity, static_environment
         final_state.add(("DoneSkill", action.args[2]))
     current_state = set(current_state)
     return ActionExecutionResult(
-        sequence=_concat_sequences(left_connector, right_connector, _graphstate_sequence(graph_state)),
+        sequence=_concat_sequences(left_connector, right_connector, approach,
+                                   _graphstate_sequence(graph_state)),
         final_confs={arm1: left_conf, arm2: right_conf},
         final_state=final_state,
         added_facts=frozenset(final_state - current_state),
