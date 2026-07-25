@@ -27,7 +27,7 @@ if root_path not in sys.path:
 os.chdir(root_path)
 
 from examples.pybullet.aloha_real.openworld_aloha.contact_monitoring import (
-    ContactEffectMonitorGroup,
+    ContactEffectMonitor,
     ContactPredictorWrapper,
     build_effect_monitor,
 )
@@ -210,12 +210,7 @@ class DMG_OSC_planner(object):
                 contact_repo_root=self.para.get("contact_prediction_root"),
                 effect_detection_defaults={
                     "contact_predictor_checkpoint": contact_predictor_checkpoint,
-                    "sam3_worker_path": self.para.get("sam3_worker_path"),
-                    "sam3_path": self.para.get("sam3_path"),
-                    "sam3_model_dir": self.para.get("sam3_model_dir"),
-                    "sam3_checkpoint": self.para.get("sam3_checkpoint"),
-                    "sam3_conda_env": self.para.get("sam3_conda_env"),
-                    "sam3_conda_bin": self.para.get("sam3_conda_bin"),
+                    "contact_label_threshold": self.para.get("contact_label_threshold"),
                 },
             )
         else:
@@ -466,7 +461,7 @@ class DMG_OSC_planner(object):
             (skill_meta.get("effect_detection") or {}).get("backend") == "contact_predictor"
             for skill_meta in skill_metas
         ):
-            self.effect_monitor = ContactEffectMonitorGroup(
+            self.effect_monitor = ContactEffectMonitor(
                 self._contact_predictor_wrapper, skill_metas
             )
         else:

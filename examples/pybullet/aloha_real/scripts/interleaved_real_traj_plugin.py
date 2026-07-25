@@ -8,9 +8,11 @@ os.chdir(root_path)
 
 from examples.pybullet.aloha_real.openworld_aloha.contact_monitoring import (
     ContactPredictorWrapper,
-    SegReuseRegistry,
     build_effect_monitor,
-    validate_seg_backend_pairing,
+)
+from examples.pybullet.aloha_real.openworld_aloha.workers.seg_registry import (
+    SegReuseRegistry,
+    canonicalize_seg_backend,
 )
 
 
@@ -124,21 +126,13 @@ class real_openworld(object):
             root_path=root_path,
         )["skill_meta_map"]
 
-        self._seg_pairing = validate_seg_backend_pairing(self.para)
-        SegReuseRegistry.init_for_pairing(self._seg_pairing, self.para)
+        seg_backend = canonicalize_seg_backend(self.para.get('seg_branch', 'sam3'))
+        SegReuseRegistry.init(seg_backend, self.para)
 
         self._effect_detection_defaults = {
             "contact_predictor_checkpoint": self.para.get("contact_predictor_checkpoint"),
-            "seg_branch": self.para.get("seg_branch"),
-            "contact_wrist_seg_backend": self.para.get("contact_wrist_seg_backend"),
             "text_prompt": self.para.get("text_prompt"),
-            "sam_path": self.para.get("sam_path"),
-            "sam3_worker_path": self.para.get("sam3_worker_path"),
-            "sam3_path": self.para.get("sam3_path"),
-            "sam3_model_dir": self.para.get("sam3_model_dir"),
-            "sam3_checkpoint": self.para.get("sam3_checkpoint"),
-            "sam3_conda_env": self.para.get("sam3_conda_env"),
-            "sam3_conda_bin": self.para.get("sam3_conda_bin"),
+            "contact_label_threshold": self.para.get("contact_label_threshold"),
         }
 
         if para['real_execute'] == False:
@@ -154,7 +148,6 @@ class real_openworld(object):
                 contact_repo_root=self.para.get('contact_prediction_root'),
                 workspace_root=root_path,
                 effect_detection_defaults=self._effect_detection_defaults,
-                seg_pairing=self._seg_pairing,
             )
             if getattr(self, 'lfd', None) is not None
             else None

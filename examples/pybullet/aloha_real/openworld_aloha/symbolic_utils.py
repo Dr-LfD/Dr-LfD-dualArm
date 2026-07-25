@@ -822,34 +822,26 @@ class DummyPrimitiveSubgoalDetector(PrimitiveSubgoalDetector):
 
 def merge_primitive_effect_detection(skill_meta, effect_detection_defaults):
     """Merge per-skill effect_detection with YAML defaults (same keys as ContactPredictorWrapper)."""
-    det = dict(skill_meta.get("effect_detection") or {})
+    from examples.pybullet.aloha_real.openworld_aloha.contact_monitoring import (
+        CONTACT_PREDICTOR_DEFAULT_KEYS,
+    )
+
+    effect_cfg = dict(skill_meta.get("effect_detection") or {})
     defaults = dict(effect_detection_defaults or {})
-    if "checkpoint" not in det and defaults.get("contact_predictor_checkpoint"):
-        det["checkpoint"] = defaults["contact_predictor_checkpoint"]
-    for key in (
-        "sam3_worker_path",
-        "sam3_path",
-        "sam3_model_dir",
-        "sam3_checkpoint",
-        "sam3_conda_env",
-        "sam3_conda_bin",
-        "sam_path",
-        "seg_branch",
-        "contact_wrist_seg_backend",
-        "text_prompt",
-        # "contact_label_threshold",
-    ):
-        if key not in det and key in defaults:
-            det[key] = defaults[key]
-    return det
+    if "checkpoint" not in effect_cfg and defaults.get("contact_predictor_checkpoint"):
+        effect_cfg["checkpoint"] = defaults["contact_predictor_checkpoint"]
+    for key in CONTACT_PREDICTOR_DEFAULT_KEYS:
+        if key not in effect_cfg and defaults.get(key) is not None:
+            effect_cfg[key] = defaults[key]
+    return effect_cfg
 
 
 def skill_requires_contact_predictor_checkpoint(skill_meta, effect_detection_defaults):
     """True iff merged config is contact_predictor with a non-empty checkpoint string."""
-    det = merge_primitive_effect_detection(skill_meta, effect_detection_defaults)
-    if det.get("backend") != "contact_predictor":
+    effect_cfg = merge_primitive_effect_detection(skill_meta, effect_detection_defaults)
+    if effect_cfg.get("backend") != "contact_predictor":
         return False
-    ckpt = det.get("checkpoint")
+    ckpt = effect_cfg.get("checkpoint")
     return bool(ckpt and str(ckpt).strip())
 
 

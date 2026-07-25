@@ -19,7 +19,7 @@ How the simulation route verifies that a skill achieved its intended effect
 ## Source files
 
 - `examples/pybullet/aloha_real/openworld_aloha/contact_monitoring.py`
-  (`ContactEffectMonitorGroup`, `ContactPredictorWrapper`).
+  (`ContactEffectMonitor`, `ContactPredictorWrapper`).
 - `examples/pybullet/aloha_real/openworld_aloha/symbolic_utils.py`
   (`SimPrimitiveSubgoalDetector`, `get_contact_action_subgoal()`,
   `get_barrier_action_subgoal()`).

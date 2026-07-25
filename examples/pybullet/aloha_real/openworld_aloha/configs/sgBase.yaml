@@ -9,9 +9,11 @@ motion_tolerance: 0.07
 monitor_switch_t: 1
 temp_vis_dir: 'examples/pybullet/aloha_real/openworld_aloha/estimation/temp_vis/'
 
-# seg_branch / contact_wrist_seg_backend: sam3 | grounded_sam only (null mirrors seg_branch)
+# seg_branch: sam3 | grounded_sam only
 seg_branch: sam3
-contact_wrist_seg_backend: null
+
+# hand-tuned on real ALOHA, overrides the checkpoint's own contact_label_threshold
+contact_label_threshold: 0.28
 
 sam_path: '${GROUNDED_SAM2_ROOT}/'
 sam3_path: '${SAM3_ROOT}'

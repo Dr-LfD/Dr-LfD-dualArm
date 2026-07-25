@@ -11,9 +11,6 @@ import torch.nn.functional as F
 from examples.pybullet.utils.pybullet_tools.utils import implies
 from examples.pybullet.aloha_real.openworld_aloha.estimation.belief import take_ml_estimate
 from examples.pybullet.aloha_real.openworld_aloha.entities import BG, BOWL, CUP, OTHER, TABLE, UNKNOWN
-from examples.pybullet.aloha_real.openworld_aloha.workers.sam3_mask_client import (
-    get_shared_sam3_client,
-)
 from examples.pybullet.aloha_real.openworld_aloha.estimation.lis import (
     CKPT_PATH,
     DET_CKPT_PATH,
@@ -1076,7 +1073,7 @@ class SAM(CategoryAgnosticSeg):
         self.text_prompt = text_prompt
         self._grounded_sam_segmenter = None
         if not self.use_server:
-            from examples.pybullet.aloha_real.openworld_aloha.contact_monitoring import (
+            from examples.pybullet.aloha_real.openworld_aloha.workers.seg_registry import (
                 SegReuseRegistry,
             )
 
@@ -1167,7 +1164,7 @@ class SAM3(CategoryAgnosticSeg):
         self.model_dir = sam3_model_dir
         self.checkpoint_path = sam3_checkpoint
         self.conda_env = sam3_conda_env
-        from examples.pybullet.aloha_real.openworld_aloha.contact_monitoring import (
+        from examples.pybullet.aloha_real.openworld_aloha.workers.seg_registry import (
             SegReuseRegistry,
         )
 

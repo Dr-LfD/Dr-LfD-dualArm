@@ -59,14 +59,14 @@ def prepare_world(para, env_type = "sim", obj_info_ls = [], mj_pc_dict = None, e
         assert mj_pc_dict is None
         assert len(obj_info_ls) == 0
         random_rot_camera = para['random_rot_camera'] ## Note: Only for equivariance test. Do not use it on real robot!
-        from examples.pybullet.aloha_real.openworld_aloha.contact_monitoring import (
+        from examples.pybullet.aloha_real.openworld_aloha.workers.seg_registry import (
             SegReuseRegistry,
+            canonicalize_seg_backend,
             init_seg_branch_for_canonical,
-            validate_seg_backend_pairing,
         )
-        pairing = validate_seg_backend_pairing(para)
-        SegReuseRegistry.init_for_pairing(pairing, para)
-        seg_branch = init_seg_branch_for_canonical(pairing.perception)
+        seg_backend = canonicalize_seg_backend(para.get('seg_branch', 'sam3'))
+        SegReuseRegistry.init(seg_backend, para)
+        seg_branch = init_seg_branch_for_canonical(seg_backend)
 
     if robot_name == 'dualfranka':
         robot_entity, names, movable_bodies, stackable_bodies = load_dual_franka_world_flexible( additional_list=pyb_env_addon, obj_info_list=obj_info_ls, real_execute = para['real_execute'], **kwargs)
