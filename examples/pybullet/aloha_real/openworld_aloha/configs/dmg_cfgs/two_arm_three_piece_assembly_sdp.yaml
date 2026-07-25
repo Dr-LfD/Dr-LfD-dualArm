@@ -1,5 +1,3 @@
-# EXPERIMENTAL — Spherical Diffusion Policy variant (needs ${SPHERICAL_DP_ROOT},
-# ${DEXMIMICGEN_ROOT} + unshipped SDP ckpts). Supported route: the non-_sdp config.
 # OSC_POSE absolute-EE execution variant of two_arm_three_piece_assembly
 use_gui: False
 robot_name: 'pandadual'
@@ -62,7 +60,8 @@ LfD_params:
 
   vid_record: True
   DP_output: './data/eval/dmg_assembly/'
-  DP_max_timesteps: 700
+
+  DP_max_timesteps: 1500
   DP_num_inference_steps: 10
   DP_scale: 4
   render_obs_keys: ["agentview_image", "robot0_eye_in_hand_image", "robot1_eye_in_hand_image"]

@@ -112,17 +112,9 @@ class real_openworld(object):
             self.para, self.skill_names, self._skillwise_sgs
         )
 
-        # Flatten the per-prefix scene graphs into a single skill-keyed union. Each
-        # prefix contributes a 'bimanual_{prefix}' scene graph plus its unimanual
-        # grasp keys; the schema layer and the TAMP streams both key on these skill
-        # names, so passing the prefix keys instead would hide every bimanual skill.
-        self._skillwise_sgs = {}
-        for prefix_key in self.equivSkill_info_dict:
-            self._skillwise_sgs.update(self.equivSkill_info_dict[prefix_key]['skillwise_sgs'])
-
         self.schema_skill_metas = load_runtime_schema_metadata(
             self.para.get('skill_yaml_paths') or [],
-            env_names=list(self._skillwise_sgs.keys()),
+            env_names=list(self.equivSkill_info_dict.keys()),
             root_path=root_path,
         )["skill_meta_map"]
 
@@ -192,7 +184,6 @@ class real_openworld(object):
                 getattr(self._estimator, '_world_movable_objects', [])
             )
         # Snapshot the fully prepared first-round belief surfaces as source-of-truth.
-        # This preserves the perceived table together with static pads across replans.
         self._known_surfaces_snapshot = list(belief.known_surfaces)
 
         if self._contact_predictor_wrapper is not None:
@@ -230,8 +221,6 @@ class real_openworld(object):
             merged_surfaces.append(surface)
             existing_categories.add(category)
         belief.known_surfaces = merged_surfaces
-        # Refresh snapshot from the latest merged belief surfaces so keyboard-trigger
-        # mode (estimate_belief=False bootstrap) can retain a perceived table later.
         self._known_surfaces_snapshot = list(merged_surfaces)
         return belief
 
@@ -246,7 +235,6 @@ class real_openworld(object):
                 primitive_learning_path=para['primitive_learning_path'],
                 existing_domain_path=para['existing_domain_path'],
                 existing_stream_path=para['existing_stream_path'],
-                use_gui=para['use_gui'],
             )
             _t0 = time.time()
             session = plan_online_session(self.para, self.robot_entity, belief, **tamp_kwargs)
@@ -283,7 +271,6 @@ class real_openworld(object):
                 equivSkill_info_dict=self.equivSkill_info_dict,
                 existing_domain_path=para['existing_domain_path'],
                 existing_stream_path=para['existing_stream_path'],
-                use_gui=para['use_gui'],
             )
             print(f"Duration of TAMP: {duration_tamp}")
 
@@ -440,9 +427,7 @@ class real_openworld(object):
         adjusted_per_arm_queue = {'left': [], 'right': []}
         for side in ['left', 'right']:
             adjusted = []
-            # Start from the actual robot position; bridging closes gaps to planned start.
-            # After a Graphstate (LfD), position is unknown — reset and let post_lfd()
-            # call percept_adjust() again with a fresh actual config.
+            # Re-read live joints after LfD before bridging trajectories.
             prev_conf = None if prev_ends[side] is None else list(prev_ends[side])
 
             for cmd in per_arm_queue[side]:
@@ -451,8 +436,7 @@ class real_openworld(object):
                     prev_conf = None
                     continue
 
-                # Skip gripper-only commands — their path dimension < arm_dof,
-                # so comparing against arm positions would crash conf_close().
+                # Leave gripper-only commands out of arm-path bridging.
                 target_group = cmd.group
                 qpos_tgt = list(cmd.path[0])
                 target_dim = len(qpos_tgt)
@@ -1096,8 +1080,7 @@ class real_openworld(object):
                 'target_obj': get_batch_target_object(batch),
             }
         }
-        # Schema path carries the executor's own effect facts; the detail-MP path
-        # has no exec_result, so fall back to the stored state delta.
+        # Use stored effects when detailed planning returns no execution result.
         if exec_result is not None:
             revert_facts = {side: (exec_result.added_facts, exec_result.removed_facts)}
         else:
@@ -1155,8 +1138,7 @@ class real_openworld(object):
         if 'barrier' not in self._pending_verification:
             return
         barrier, subgoal, exec_result, updated_state = self._pending_verification.pop('barrier')
-        # Real bimanual barriers are treated as deterministic: commit the planned
-        # effect without a post-execution perception check.
+        # Commit planned effects because real barriers skip perception checks.
         self.current_state = updated_state
 
         # Advance scheduler past this barrier
@@ -1443,13 +1425,13 @@ def main(mode, testing, task_name, skill_yaml_path, pyb_env_addon, profile_plan_
     Examples:
         # Single skill
         python interleaved_real_traj_plugin.py --mode real --task-name screwdriver_noisy \\
-            --skill-yaml-path examples/pybullet/aloha_real/openworld_aloha/configs/skill_cfg/screwdriver_per_skill.yaml
+            --skill-yaml-path examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/screwdriver_per_skill.yaml
 
         # Composed task (screwdriver + handoff + clean_cup)
         python interleaved_real_traj_plugin.py --mode file --task-name screw_handoff_clean \\
-            --skill-yaml-path examples/pybullet/aloha_real/openworld_aloha/configs/skill_cfg/handoff_cup_per_skill.yaml \\
-            --skill-yaml-path examples/pybullet/aloha_real/openworld_aloha/configs/skill_cfg/clean_cup_per_skill.yaml \\
-            --skill-yaml-path examples/pybullet/aloha_real/openworld_aloha/configs/skill_cfg/screwdriver_per_skill.yaml
+            --skill-yaml-path examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_per_skill.yaml \\
+            --skill-yaml-path examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/clean_cup_per_skill.yaml \\
+            --skill-yaml-path examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/screwdriver_per_skill.yaml
     """
     skill_yaml_paths = list(skill_yaml_path)
     pyb_env_addon = list(pyb_env_addon)

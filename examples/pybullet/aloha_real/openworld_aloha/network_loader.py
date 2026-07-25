@@ -200,8 +200,7 @@ def update_equivSkill_wrapper(sg_params, para, get_sgs_from_hdf5_fn = None):
         equivSkill_info_dict[prefix_key] = {}
         equivSkill_info_dict[prefix_key]['task_name'] = task_name
         equivSkill_info_dict[prefix_key]['learned_grasp_traj_resolution_deg'] = learned_grasp_traj_resolution_deg
-        ## EE-traj densification controls: copied only when set in sg_params, so the
-        ## consumer-side defaults in openworld_streams stay the single source of truth.
+        ## Forward user-specified EE trajectory settings to the skill wrapper.
         for ee_traj_key in ('ee_traj_step_m', 'ee_traj_step_rad', 'ee_traj_steps_per_waypoint'):
             if ee_traj_key in sg_params:
                 equivSkill_info_dict[prefix_key][ee_traj_key] = sg_params[ee_traj_key]
@@ -225,10 +224,7 @@ def update_equivSkill_wrapper(sg_params, para, get_sgs_from_hdf5_fn = None):
             skillwise_sgs = get_sgs_from_hdf5_fn(hdf5_path)
         else:
             skillwise_sgs = agent_wrapper.agent.get_skillwise_sgs_from_statistics(task_name)
-            # The equi (grasp) checkpoint may not carry the bimanual keypose scene
-            # graph; the biop checkpoint does. Each checkpoint owns its own skills'
-            # graphs, so fill any skill the equi checkpoint lacks from the biop
-            # wrapper (equi wins on overlap, matching the loaded grasp policy).
+            # Add bimanual graphs missing from the grasp checkpoint.
             if biop_ckpt_path is not None:
                 biop_sgs = agent_biop_wrapper.agent.get_skillwise_sgs_from_statistics(task_name)
                 for biop_skill_name, biop_sg in biop_sgs.items():

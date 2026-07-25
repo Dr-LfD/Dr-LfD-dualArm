@@ -1,15 +1,6 @@
 """Numpy-only reachability queries against the precomputed ALOHA coverage map.
 
-This module replaces the legacy ad-hoc reachability heuristics (radial/AABB in the
-MuJoCo path, left/right x-split in the real path). It loads only the compact coverage
-artifact produced offline by ``reachabilitymap/tools/export_aloha_coverage.py`` and
-reproduces the map's voxel indexing and the paper's position-only ``IsReachable``
-(coverage fraction >= threshold). It imports neither ``reach_map`` nor torch.
 
-The artifact stores, per workspace voxel, the fraction of orientations a single vx300s
-arm can reach in its own base frame. Both ALOHA arms are identical vx300s units (the
-right arm is the same arm rotated 180 deg about z), so one map serves both arms once a
-world point is expressed in the queried arm's base frame via ``inv(*_BASE_POSE)``.
 """
 
 import threading
@@ -29,8 +20,7 @@ class AlohaReachability:
         self.artifact_path = str(artifact_path)
         self.coverage_threshold = float(coverage_threshold)
 
-        # np.load raises FileNotFoundError if the artifact is missing; this is the
-        # intended developer-visible failure (no silent fallback to a heuristic).
+        # Load the precomputed coverage map and raise if its artifact is missing.
         with np.load(self.artifact_path, allow_pickle=False) as data:
             self.coverage = np.ascontiguousarray(data["coverage"], dtype=np.float32)
             self.cell_size = float(data["cell_size"])
@@ -46,13 +36,11 @@ class AlohaReachability:
                 f"limits_per_dim shape={self.limits_per_dim.shape}"
             )
 
-        # Reproduce reach_map.base_grid.HyperGridBase exactly: ceil for the per-dim
-        # cell counts, then row-major strides (last stride == 1).
+        # Rebuild the artifact's row-major grid dimensions and strides.
         lo = self.limits_per_dim[:, 0]
         hi = self.limits_per_dim[:, 1]
         self.num_cells_per_dim = np.ceil((hi - lo) / self.cell_size).astype(np.int64)
-        # Cross-check the recomputed dims against the builder's: a mismatch means the
-        # artifact's geometry no longer matches this indexing (e.g. float-rounding skew).
+        # Reject artifacts whose stored dimensions disagree with the grid geometry.
         if not np.array_equal(self.num_cells_per_dim, saved_num_cells_per_dim):
             raise ValueError(
                 f"num_cells_per_dim mismatch: recomputed {self.num_cells_per_dim.tolist()} "
@@ -74,12 +62,7 @@ class AlohaReachability:
         }
 
     def _cell_id(self, pos_xyz):
-        """Voxel id for a point in the arm base frame, or None if outside the map.
-
-        Unlike the upstream grid (which clamps out-of-range positions to the edge
-        cell), points outside ``limits_per_dim`` are rejected: a target beyond the
-        built workspace is genuinely unreachable, not edge-reachable.
-        """
+        """Return the base-frame voxel ID for ``pos_xyz``, or None when it is outside the map."""
         pos = np.asarray(pos_xyz, dtype=np.float64).reshape(-1)
         if pos.shape != (3,):
             raise ValueError(f"expected a 3-vector position, got shape {pos.shape}")
@@ -87,14 +70,12 @@ class AlohaReachability:
         hi = self.limits_per_dim[:, 1]
         if np.any(pos < lo) or np.any(pos >= hi):
             return None
-        # torch.Tensor.int() truncates toward zero; positions here are >= lo so the
-        # truncation equals floor. astype(int64) matches that truncation.
+        # Return the row-major cell index for an in-bounds base-frame position.
         idx = ((pos - lo) / self.cell_size).astype(np.int64)
         return int(np.dot(idx, self.strides))
 
     def reachable_base(self, pos_base_xyz, threshold=None):
-        """True if the voxel containing a base-frame point clears the coverage threshold.
-        ``threshold`` overrides the oracle default (for per-object thresholds)."""
+        """Return whether ``pos_base_xyz`` meets the optional coverage threshold."""
         cell_id = self._cell_id(pos_base_xyz)
         if cell_id is None:
             return False
@@ -110,8 +91,7 @@ class AlohaReachability:
         return (self._world_to_base[side] @ point)[:3]
 
     def reachable(self, side, world_point_xyz, threshold=None):
-        """Position-only IsReachable for ``side`` ('left'/'right') at a world point.
-        ``threshold`` overrides the oracle default (per-object thresholds)."""
+        """Return whether ``side`` can reach ``world_point_xyz`` at the optional threshold."""
         return self.reachable_base(
             self._world_to_base_point(side, world_point_xyz), threshold=threshold)
 
@@ -120,7 +100,7 @@ _LOCK = threading.Lock()
 
 
 def get_reachability(artifact_path, coverage_threshold):
-    """Process-wide singleton per (artifact, threshold); loads the map once."""
+    """Return the cached reachability map for an artifact and coverage threshold."""
     key = (str(artifact_path), float(coverage_threshold))
     with _LOCK:
         oracle = _CACHE.get(key)

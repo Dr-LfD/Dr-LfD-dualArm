@@ -79,6 +79,7 @@
     {
       "skill_id": 3,
       "name": "bimanual assemble",
+      "lfd_timeout": 250,
       "edge_ops": [
         [
           [

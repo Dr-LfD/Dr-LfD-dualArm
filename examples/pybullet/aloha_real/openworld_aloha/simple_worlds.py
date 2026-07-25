@@ -249,8 +249,7 @@ def obj_points_to_body(obj_points, sc_network = None, category = 'other', concav
 def load_mesh(obj_points, sc_network = None, category = 'other',  concave = True, filter = False, add_bottom = False):
     obj_id, labeled_points, origin_pose = obj_points_to_body(obj_points, sc_network, category, concave, filter, add_bottom)
 
-    # Place the body at the final world pose BEFORE creating EstimatedObject.
-    # EstimatedObject captures `initial_pose = get_pose(body)` at construction time.
+    # Set the body pose first because EstimatedObject stores it as its initial pose.
     set_pose(obj_id, origin_pose)
     obj_estimate = EstimatedObject(
         obj_id,

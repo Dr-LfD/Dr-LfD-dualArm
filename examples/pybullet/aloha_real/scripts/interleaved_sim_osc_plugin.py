@@ -120,8 +120,7 @@ class DMG_OSC_planner(object):
         self.task_name = self.sg_param['task_name']
         self.success = False
         self.effect_monitor = None
-        # Last commanded gripper joint per side, carried across stage executions so a
-        # held grip is re-asserted during transfer instead of re-read from live qpos.
+        # Reuse the last gripper command when a later stage holds an object.
         self._carried_gripper_cmd = {}
 
         self.env_type = 'mj'
@@ -150,11 +149,7 @@ class DMG_OSC_planner(object):
             all_skillwise_sgs.update(self.equivSkill_info_dict[prefix_key]['skillwise_sgs'])
         self.skillwise_sgs = all_skillwise_sgs
 
-        # env_names must be the runtime skill keys (the same list compute_skill_names
-        # feeds), so schema_skill_metas is keyed by the PDDL skill names. The biop
-        # checkpoint's bimanual scene graph is merged into skillwise_sgs by
-        # update_equivSkill_wrapper, so its keys carry 'bimanual_0'; passing the
-        # prefix keys (e.g. ['per_skill']) instead drops the bimanual skill.
+        # Pass runtime skill names so bimanual metadata remains available.
         self.schema_skill_metas = load_runtime_schema_metadata(
             self.para.get('skill_yaml_paths') or [],
             env_names=list(self.skillwise_sgs.keys()),
@@ -238,10 +233,7 @@ class DMG_OSC_planner(object):
             'collision_distance': self.sg_param['attachment_collision_distance'],
             'equivSkill_info_dict': self.equivSkill_info_dict,
             'initial_pc_dict': self._initial_pc_dict,
-            # Route OSC EE-trajectory generation to the streams so
-            # get_imitate_traj_fn / get_plan_motion_fn take their ee_traj_mode branch.
             'ee_traj_mode': True,
-            'use_gui': self.para['use_gui'],
         }
 
     # ------------------------------------------------------------------
@@ -259,8 +251,7 @@ class DMG_OSC_planner(object):
             "camera_widths": img_shape[2],
             "camera_segmentations": "instance",
         }
-        # SDP consumes a fused scene point_cloud obs, which the env only emits when
-        # output_all_pcds is set. DP is image-only, so leave it off there.
+        # Enable fused point clouds only for SDP inference.
         if self.para['LfD_params']['lfd_alg'] == 'SDP':
             env_options["output_all_pcds"] = True
         return env_options
@@ -401,8 +392,7 @@ class DMG_OSC_planner(object):
         for seq in connectors:
             combined_commands.extend(getattr(seq, 'commands', []))
         combined_seq = Sequence(combined_commands)
-        # iterate_process_sequence emits 14-D OSC_POSE actions, so the home motion
-        # must run under the same OSC_POSE abs controller execute_robosuite_plan uses.
+        # Replay home connectors with the same OSC controller as planned motion.
         self.lfd.update_controllers(controller_name="OSC_POSE", abs_action=True)
         for action in self.iterate_process_sequence(self.robot_entity, combined_seq):
             self.replay_tamp_every(action, duration=0.01)
@@ -414,12 +404,10 @@ class DMG_OSC_planner(object):
             self._execute_perception_connector(self._build_perception_home_connector())
         self._refresh_object_meshes(target_objects)
 
-    def perceive_env(self, updated_state, lane_checks):
+    def perceive_env(self, updated_state, lane_checks, refresh_perception=True):
         """Post-execution subgoal detection; returns (state, achieved, results).
 
-        Refreshes the meshes of the objects the stage moved, detects whether each
-        subgoal was achieved, and on a miss retries once with the arms moved home
-        (occlusion recovery). Does not commit ``self.current_state``.
+        Optionally refreshes meshes before detection and retries with arms home.
         """
         if not lane_checks:
             updated_state = preserve_arm_confs(
@@ -431,12 +419,13 @@ class DMG_OSC_planner(object):
         removed = self.current_state - updated_state
         affected_objects = [f[1] for f in search_facts(added | removed, 'atpose')]
 
-        self._refresh_affected_object_meshes(affected_objects, reset_home=False)
+        if refresh_perception:
+            self._refresh_affected_object_meshes(affected_objects, reset_home=False)
         lane_results = self._primitive_subgoal_detector.detect(
             lane_checks, affected_objects=affected_objects
         )
         subgoal_achieved = all(lane_results.values()) if lane_results else True
-        if not subgoal_achieved:
+        if refresh_perception and not subgoal_achieved:
             print('Subgoal not achieved after perception, replan locally')
             self._refresh_affected_object_meshes(affected_objects, reset_home=True)
             lane_results = self._primitive_subgoal_detector.detect(
@@ -476,6 +465,27 @@ class DMG_OSC_planner(object):
         if self.effect_monitor is not None and hasattr(self.effect_monitor, "close"):
             self.effect_monitor.close()
         self.effect_monitor = None
+
+    def _resolve_lfd_timeout(self, subgoals):
+        """This stage's per-segment BC step budget, from its schema ``lfd_timeout``."""
+        skill_names = {
+            getattr(fact[1], "value", fact[1])
+            for lane_subgoal in subgoals.values() if lane_subgoal
+            for fact in lane_subgoal if "doneskill" in str(fact[0]).lower()
+        }
+        if len(skill_names) != 1:
+            raise ValueError(
+                f"BC stage needs exactly one DoneSkill to resolve lfd_timeout; got "
+                f"{sorted(map(str, skill_names))}"
+            )
+        skill_name = skill_names.pop()
+        skill_meta = self.schema_skill_metas.get(skill_name) or {}
+        if "lfd_timeout" not in skill_meta:
+            raise ValueError(
+                f"BC skill {skill_name!r} declares no 'lfd_timeout'; add it to that "
+                f"skill's entry in the task's *_changes.json schema config."
+            )
+        return int(skill_meta["lfd_timeout"])
 
     def _select_effect_monitor_skill_metas(self, subgoals):
         if len(self.sg_param.get('robots', [])) < 2:
@@ -558,10 +568,7 @@ class DMG_OSC_planner(object):
         )
         self.current_state = session.state_history[0]
 
-        # Refine + execute one stage at a time. Perceive() is realized
-        # by prepare_world() for the first stage and by perceive_env()'s mesh refresh
-        # at the end of each stage for the next, so the detailed plan is always
-        # grounded in the latest observed object poses.
+        # Refresh object meshes before planning each stage.
         while True:
             stage = self._next_stage(scheduler)
             if stage is None:
@@ -570,8 +577,7 @@ class DMG_OSC_planner(object):
 
             achieved = False
             for attempt in range(self.MAX_STAGE_RETRIES):
-                # Schema fast-path first; re-solve a local PDDLStream problem only
-                # after a verification miss.
+                # Use detailed planning only after schema verification fails.
                 detailed = self._plan_stage(kind, payload, use_detail_mp=attempt > 0)
                 if detailed is None:
                     print(f'\033[33m[online_tamp] {kind} stage planning failed, '
@@ -587,9 +593,7 @@ class DMG_OSC_planner(object):
                     achieved = status == 'success'
                     break
                 if kind == 'lanes':
-                    # Advance the lanes that verified and retry only the rest, so a
-                    # successful pick/place is never re-executed for the other arm's
-                    # sake. Failed lanes' effects were reverted in _execute_and_verify.
+                    # Keep verified lanes and replan only failed lanes.
                     for lane in list(payload):
                         if results.get(lane, True):
                             scheduler.pop_lane_batch(lane)
@@ -600,6 +604,8 @@ class DMG_OSC_planner(object):
                         break
                 elif achieved:
                     break
+                if kind == 'barrier':
+                    self.current_state = self._sync_live_arm_atconfs(self.current_state)
                 print(f'\033[33m[online_tamp] {kind} stage subgoal not achieved, '
                       f'retry {attempt + 1}/{self.MAX_STAGE_RETRIES}\033[0m')
 
@@ -610,8 +616,7 @@ class DMG_OSC_planner(object):
                       f'{self.MAX_STAGE_RETRIES} retries, aborting\033[0m')
                 break
 
-            # Lane batches were popped incrementally as each lane verified; only the
-            # barrier needs its post-stage scheduler advance here.
+            # Advance the scheduler after a verified barrier.
             if kind == 'barrier':
                 scheduler.pending_barriers.pop(0)
                 scheduler.advance_phase()
@@ -699,19 +704,28 @@ class DMG_OSC_planner(object):
         """
         subgoals = {key: chk['subgoal'] for key, chk in checks.items()}
         stop_mode = "bc" if getattr(seq, 'graphstate_markers', ()) else "replan"
+        is_barrier = stop_mode == "bc"
+        lfd_timeout = self._resolve_lfd_timeout(subgoals) if stop_mode == "bc" else None
         self._begin_contact_monitoring(subgoals)
         try:
-            status = self.execute_robosuite_plan(seq, stop_mode=stop_mode)
+            status = self.execute_robosuite_plan(
+                seq, stop_mode=stop_mode, lfd_timeout=lfd_timeout
+            )
         finally:
             self._end_contact_monitoring()
 
-        # 'fail'/'success' are terminal: online_tamp breaks immediately, so the
-        # un-perceived self.current_state is never planned from again.
+        # Return terminal states before they can be replanned.
         if status in ('fail', 'success'):
             return status, self.current_state, status == 'success', {}
+        if status == 'effect_miss':
+            return status, self.current_state, False, {
+                key: False for key in unit_states
+            }
 
         merged_state = merge_lane_states(self.current_state, unit_states.values())
-        verified_state, achieved, results = self.perceive_env(merged_state, checks)
+        verified_state, achieved, results = self.perceive_env(
+            merged_state, checks, refresh_perception=not is_barrier
+        )
         verified_state = set(verified_state)
         for key, unit_state in unit_states.items():
             if results.get(key, True):
@@ -721,6 +735,22 @@ class DMG_OSC_planner(object):
                 verified_state, added_facts=added, removed_facts=removed
             )
         return status, verified_state, achieved, results
+
+    def _sync_live_arm_atconfs(self, state):
+        """Replace symbolic arm configurations with the current simulator joints."""
+        live_jposes = self.lfd.get_cur_jpose_robosuite()
+        if live_jposes is None:
+            raise RuntimeError('Cannot retry barrier: live joint pose unavailable')
+        synced_state = set(state)
+        for arm in self.robot_entity.arms:
+            if arm not in live_jposes:
+                raise RuntimeError(f'Cannot retry barrier: live joint pose missing for {arm}')
+            synced_state = {
+                fact for fact in synced_state
+                if not (len(fact) >= 3 and str(fact[0]).lower() == 'atconf' and fact[1] == arm)
+            }
+            synced_state.add(('AtConf', arm, GroupConf(self.robot_entity, arm, live_jposes[arm])))
+        return synced_state
 
     def _plan_lane_batch(self, lane, batch):
         """Bind this planner's state to the shared schema fast-path."""
@@ -759,10 +789,13 @@ class DMG_OSC_planner(object):
         time.sleep(duration)
         return ts
 
-    def execute_robosuite_plan(self, seq, stop_mode='replan'):
+    def execute_robosuite_plan(self, seq, stop_mode='replan', lfd_timeout=None):
         """Run `seq` in controller stages (OSC replay, optional JOINT_POSITION approach), falling back to BC."""
         if stop_mode not in {'replan', 'bc'}:
             raise ValueError(f"Unsupported stop_mode: {stop_mode!r}")
+        if stop_mode == 'bc' and lfd_timeout is None:
+            raise ValueError("BC execution requires an lfd_timeout step budget")
+
 
         pre_seq, joint_cmds, post_seq = self._split_joint_space_exec(seq)
         # Stage generators are created lazily; iterate_process_sequence seeds from the live robot state.
@@ -785,12 +818,9 @@ class DMG_OSC_planner(object):
         doing_tamp = True
 
         for _ in range(self.lfd.max_timesteps):
+            if self.lfd.t >= self.lfd.max_timesteps:
+                return 'fail'
             if doing_tamp:
-                # The TAMP phase is open-loop connector/primitive replay. The effect
-                # monitor governs only the *learned policy* (BC) — checking it here
-                # would let the connector transit (which brings the two hands close
-                # on the way to the bioperation keypose) trip the bimanual monitor
-                # and skip the policy entirely, so we never consult it during replay.
                 try:
                     action = next(tamp_cmd_gen)
                     self.replay_tamp_every(action, duration=0.01)
@@ -808,6 +838,8 @@ class DMG_OSC_planner(object):
                     doing_tamp = False
                     self.lfd.set_bc_controller()
             else:
+                if self.lfd.t - self.lfd.t_bc_start >= lfd_timeout:
+                    return 'effect_miss'
                 self.lfd.inference_once()
                 if self._effect_monitor_completed():
                     print("Effect monitor completed primitive")
@@ -818,6 +850,12 @@ class DMG_OSC_planner(object):
                 self.success = True
                 break
         else:
+            if stop_mode == 'bc':
+                # A retry needs budget to replay its re-approach; without it, fail now.
+                if self.lfd.t >= self.lfd.max_timesteps:
+                    return 'fail'
+                print("LfD effect not achieved; retrying stage")
+                return 'effect_miss'
             print("Task failed!")
             self.success = False
 
@@ -1034,9 +1072,7 @@ class DMG_OSC_planner(object):
             side: robot_entity.pos2joint_gripper(init_conf[f'{side}_gripper'][0])
             for side in sides
         }
-        # A frozen (AtGrasp) move re-asserts the grasp's last commanded grip while
-        # holding an object — carried across batches, NOT re-read from the live
-        # aperture (a held object holds the fingers apart, relaxing the grip).
+        # Preserve the commanded grip because live finger positions relax on contact.
         carried_gripper_cmd = getattr(self, '_carried_gripper_cmd', {})
         closed_conf, _ = robot_entity.close_open_conf()
         default_closed = robot_entity.pos2joint_gripper(float(closed_conf[0]))
@@ -1066,8 +1102,7 @@ class DMG_OSC_planner(object):
                 repeat = max(1, int(getattr(primitive, 'steps_per_waypoint', 1)))
                 freeze_gripper = _is_frozen(primitive)
 
-                # Resolve the whole segment's (pose, gripper) targets up front so
-                # close ramps can be retimed onto the grasp waypoint.
+                # Build all targets before moving a close ramp to its grasp waypoint.
                 poses, grippers = [], []
                 pose = last_pose
                 gripper = frozen_gripper[side] if freeze_gripper else last_gripper
@@ -1120,8 +1155,7 @@ class DMG_OSC_planner(object):
         }
 
         def record_carried_gripper():
-            # Persist the last commanded grip per side for the next batch's frozen
-            # move; the OSC slice is [pos(3), axisangle(3), gripper(1)], so [-1] is it.
+            # Store each side's final gripper command for the next frozen move.
             self._carried_gripper_cmd = {
                 side: float(last_slices[side][-1]) for side in sides
             }
@@ -1162,8 +1196,7 @@ class DMG_OSC_planner(object):
                 continue
             onset = i
             sign = 1.0 if delta > 0.0 else -1.0
-            # Absorb the whole non-decreasing ramp (plateaus included) so the
-            # snapped command is the ramp's final value, not a partial one.
+            # Consume the full close ramp so the command reaches its final value.
             end = onset
             while (end + 1 < len(grippers)
                    and sign * (grippers[end + 1] - grippers[end]) >= -self.GRIPPER_RAMP_EPS):
@@ -1281,8 +1314,6 @@ if __name__ == '__main__':
     from repo_paths import load_yaml
     parameters = load_yaml(yaml_path)
 
-    # CLI overrides bypass load_yaml's ${VAR}/~ expansion, so expand them here;
-    # numeric values are coerced to float, paths stay strings.
     for kv in args.sg:
         key, val = kv.split('=', 1)
         try:

@@ -629,11 +629,7 @@ def effect_monitor_sensor_data(lfd, robot_entity, contact_predictor=None, target
             "robot0": left,
             "robot1": right,
         }
-    # Gripper values: the real ROS Controller publishes l/r_gripper_val, but the
-    # sim SimulatedController never sets them — so for sim read the live robosuite
-    # gripper qpos through the LfD wrapper and map it with the same
-    # pos2joint_gripper scale the OSC executor commands. (eef_xyz above is sourced
-    # the same capability-based way.)
+    # Read simulated gripper joints because the simulated controller does not publish them.
     ctrl = robot_entity.controller if robot_entity is not None else None
     if ctrl is not None and getattr(ctrl, "l_gripper_val", None) is not None:
         sensor_data["gripper_vals"] = {

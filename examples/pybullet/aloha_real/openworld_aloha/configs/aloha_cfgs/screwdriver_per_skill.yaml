@@ -1,8 +1,8 @@
-contact_predictor_checkpoint: '${REPO_ROOT}/ckpt/contact_ckpt/screwdriver_left_arm.ckpt'
+contact_predictor_checkpoint: '/ssd1/chenyizhou/contact_ckpt/screwdriver_left_arm.ckpt'
 
 
 sg_params:
-  h5_parent_dir: "${WS_ROOT}/aloha_data/screwdriver_noisy/"
+  h5_parent_dir: "/ssd1/aloha_data/screwdriver_noisy/"
   skill_name: 'screwdriver'
   skill_type: 'bimanualOr'
   pre_obj_names: ['screwdriver']
@@ -12,7 +12,7 @@ sg_params:
   output_dir: 'hdf5_out/screwdriver'
   related_rbts: ['left', 'right']
   schema:
-    path: '../aloha_cfgs/screwdriver_changes.json'
+    path: 'screwdriver_changes.json'
 
 # uncomment me after training obj-centric primitives
   equi_ckpt_name: "logs/train/aloha_screwdriver/sdp/grasp512_fixequi.pth"
@@ -49,5 +49,7 @@ LfD_params:
   env_type: 'real'
   DP_path: '${DIFFUSION_POLICY_ROOT}/'
   DP_input: 
-    bimanual_screwdriver_per_skill: '${REPO_ROOT}/ckpt/dp_ckpts/aloha_screwdriver_noisy/dp_3view/cluttered.ckpt'
+    # bimanual_screwdriver_per_skill: '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/dp_3view/latest.ckpt'  
+    bimanual_screwdriver_per_skill: '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/dp_3view/cluttered.ckpt'    
+    # bimanual_screwdriver_per_skill: '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/fm_3view/latest.ckpt'  
 

@@ -188,8 +188,7 @@ def _extract_motion_fluents(current_state, active_arm):
         if predicate not in _MOTION_FLUENT_PREDICATES:
             continue
         if predicate == "atgrasp" and len(fact) >= 4:
-            # Preserve both active and passive grasps so collision checking
-            # models held objects as attachments rather than world obstacles.
+            # Treat both held objects as robot attachments during collision checks.
             fluents.append(fact)
             continue
         fluents.append(fact)

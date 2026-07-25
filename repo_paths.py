@@ -52,8 +52,7 @@ def find_repo_root(start=None):
         current = parent
 
 
-# This module lives at the repository root, so its own directory is the root in
-# the common case; fall back to a marker walk if the file was relocated.
+# Use this module's directory as the root, unless the module was relocated.
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if not os.path.exists(os.path.join(REPO_ROOT, _ROOT_MARKER)):
     REPO_ROOT = find_repo_root()
@@ -92,8 +91,7 @@ def _expand(node) -> Any:
     return node
 
 
-# env var -> (subdir under REPO_ROOT, sentinel package). The sentinel guards
-# against empty submodule dirs left by a non-recursive clone.
+# Map environment variables to their default submodule paths and sentinels.
 _SUBMODULE_DEFAULTS = {
     "PRIMITIVE_LEARNING_ROOT": ("primitive_learning", "equiv_primitive"),
     "CONTACT_PREDICTION_ROOT": ("contact_detector", "contact_pred"),

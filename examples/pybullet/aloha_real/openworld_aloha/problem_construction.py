@@ -103,8 +103,7 @@ def pddlstream_from_schema_problem(
         get_schema_metadata_from_data, compute_skill_names, build_action_schema_from_data,
     )
     robot_entity.reset()
-    # Per-task opt-in (default off): emit reachability + MDF safety constraints.
-    # DMG threading/assembly keep it off, so generated PDDL stays constraint-free.
+    # Read whether this task should include reachability and MDF safety constraints.
     enable_constraints = kwargs.pop("use_constraints", False)
     perceived_objects = list(belief.estimated_objects)
     stackable = list(belief.known_surfaces)
@@ -246,8 +245,7 @@ def pddlstream_from_schema_problem(
         if "LearnedBiKeyPose" in meta.get("matched_streams", []):
             init.append(("Skillbimanual", sk_name))
             if enable_constraints:
-                # SkillCheckObj on movables this skill does NOT manipulate: scopes the
-                # CFreeMDF check to potential blocking obstacles only.
+                # Check only movable objects that could block this skill.
                 involved = meta.get("involved_objects", set())
                 for mname in movable_names:
                     if mname in involved:
@@ -281,8 +279,7 @@ def pddlstream_from_schema_problem(
             fixed_objects.remove(surf) ## estimated table will always collide with robot
 
 
-    # Pop the explicitly-forwarded values so they don't collide with **stream_kwargs.
-    # equivSkill_info_dict (from the DMG runner) is required to bind the learned streams.
+    # Remove learned-stream arguments before forwarding generic stream options.
     stream_kwargs = dict(kwargs)
     equivSkill_info_dict = stream_kwargs.pop("equivSkill_info_dict", None)
     posegen_mode = stream_kwargs.pop("posegen_mode", "diffusion")
@@ -381,8 +378,7 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
         return _mdf_cache['data']
 
     def _bind_biop_cfree(stream_name):
-        # Keypose-free CFreeMDF check (universal in BiOperation compiled by
-        # universal_to_conditional). Do NOT set eager=True — it suppresses the move-aside skeleton.
+        # Leave CFreeMDF lazy so planning can insert an obstacle move.
         stream_map[stream_name] = from_test(get_mdf_clear_test(_get_mdf_data(), safety_margin=mdf_safety_margin))
         stream_info[stream_name] = StreamInfo(p_success=1e-1, verbose=verbose)
 
@@ -448,8 +444,7 @@ def create_hybrid_streams(robot, table, obstacles=[], skill_names = None,  grasp
             stream_info[name] = StreamInfo(overhead=overhead)
         return True
 
-    # Bind each instantiated stream from its explicit `template`; the spec carries
-    # everything the binder needs (no source-name guessing).
+    # Bind each stream from the template named in its specification.
     if instantiated_streams:
         for spec in instantiated_streams:
             name = spec.get("name")

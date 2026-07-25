@@ -241,8 +241,7 @@ def build_effect_monitor(skill_meta, contact_predictor_wrapper, env_type):
 
 
 class _ConstantImageObservation(dict):
-    # Returns the same image for every obs_key, so the CLI doesn't need to duplicate
-    # ContactPredictorRuntimeSession's camera/obs_key resolution just to pick a key.
+    # Return the same camera image for any requested observation key.
     def __init__(self, image):
         super().__init__()
         self._image = image

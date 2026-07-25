@@ -41,9 +41,7 @@ def _fill_template(template_content, replacements):
     return out
 
 
-# Optional reachability + MDF policy-safety constraints, emitted only when
-# enable_constraints is True (per-task `use_constraints` flag); otherwise the
-# {{REACHABLE_PRE}} placeholders fill to "".
+# Insert reachability and safety predicates only when constraints are enabled.
 
 # Inline precondition fragment per action template (exact indentation/varnames preserved).
 _REACHABLE_PRE = {
@@ -115,7 +113,7 @@ def parse_config(config_path, object_mapping=None):
 
     The ``edge_ops`` ``Add``/``Del`` verbs are mapped to the internal ``add``/``remove``
     ``contact_changes`` representation; per-skill extras (``effect_detection``,
-    ``timestamps``, ``skill_type``) are carried through verbatim.
+    ``timestamps``, ``skill_type``, ``lfd_timeout``) are carried through verbatim.
     """
     with open(config_path, "r") as f:
         data = json.loads(apply_schema_object_mapping(f.read(), object_mapping))
@@ -146,8 +144,16 @@ def parse_config(config_path, object_mapping=None):
                 edge = ast.literal_eval(edge)
             contact_changes.append([list(edge), _EDGE_OP_TO_INTERNAL[op]])
 
+        if "lfd_timeout" in entry:
+            lfd_timeout = entry["lfd_timeout"]
+            if isinstance(lfd_timeout, bool) or not isinstance(lfd_timeout, int) or lfd_timeout <= 0:
+                raise ValueError(
+                    f"Skill {entry['name']!r} in {config_path} declares lfd_timeout "
+                    f"{lfd_timeout!r}; expected a positive integer step count."
+                )
+
         skill_entry = {"description": entry["name"], "contact_changes": contact_changes}
-        for key in ("effect_detection", "timestamps", "skill_type"):
+        for key in ("effect_detection", "timestamps", "skill_type", "lfd_timeout"):
             if key in entry:
                 skill_entry[key] = entry[key]
         skills.append(skill_entry)
@@ -507,8 +513,7 @@ def MatchStreams(skill, obj_types, current_graph):
 
     involved_hands = InvolvedArms(changes, hands, current_graph)
 
-    # Final-state contact graph (after applying all of this skill's changes), used
-    # below for the hand-object edges the biop stream / grasp-refresh logic needs.
+    # Apply this skill's changes to obtain its final contact graph.
     G_eff = current_graph.copy()
     for edge, op in changes:
         u, v = edge
@@ -517,9 +522,7 @@ def MatchStreams(skill, obj_types, current_graph):
         elif op == "remove" and G_eff.has_edge(u, v):
             G_eff.remove_edge(u, v)
 
-    # Collect all hand-object edges in the effect state. These are preserved in
-    # metadata so the unified biop-keypose stream can emit grasp outputs and the
-    # BiOperation action can refresh stale grasps after a stochastic policy.
+    # Store final hand-object edges for later grasp refreshes.
     eff_hand_obj_edges = []
     for h in hands:
         for nbr in (G_eff.neighbors(h) if G_eff.has_node(h) else []):
@@ -695,9 +698,7 @@ def classify_skills(skills, obj_types, initial_graph):
     if not any("source_initial_graph" in skill for skill in skills):
         return _classify_skill_sequence(skills, obj_types, initial_graph)
 
-    # Group skills by (source_schema, source_initial_graph), preserving original indices.
-    # Using graph content as part of the key ensures that composing the same schema
-    # twice (A+A) still classifies each instance independently.
+    # Classify repeated schemas independently by their source graph.
     grouped = {}
     for idx, skill in enumerate(skills):
         source_schema = skill.get("source_schema")
@@ -740,9 +741,7 @@ def compute_skill_names(classified_skills, env_names, naming_mode=None):
         )
     else:
         use_side_prefix = (naming_mode == "real")
-    # Bimanual model keys, in order. canonical_bimanual_skill_name is idempotent on
-    # names that are already bimanual, so this selects exactly the bimanual entries
-    # regardless of where they sit in env_names (the full skill-key list).
+    # Select bimanual entries from the runtime skill names.
     bimanual_env_names = [n for n in env_names if canonical_bimanual_skill_name(n) == n]
     for i, meta in enumerate(classified_skills):
         streams = meta.get("matched_streams", [])
@@ -762,8 +761,7 @@ def compute_skill_names(classified_skills, env_names, naming_mode=None):
         else:
             names.append(f"sk_{i}")
 
-    # Ensure global uniqueness: append __N suffix for duplicates
-    # Use a set of all finalized names to avoid collisions with generated suffixed names
+    # Add suffixes until every generated skill name is unique.
     finalized = set()
     seen_counts = {}
     unique_names = []
@@ -934,8 +932,9 @@ def load_runtime_schema_metadata(skill_yaml_paths, env_names, root_path=None):
     for raw_skill, meta, skill_name in zip(composed_skills, classified, skill_names):
         enriched_meta = dict(meta)
         enriched_meta["skill_name"] = skill_name
-        if "effect_detection" in raw_skill:
-            enriched_meta["effect_detection"] = raw_skill["effect_detection"]
+        for key in ("effect_detection", "lfd_timeout"):
+            if key in raw_skill:
+                enriched_meta[key] = raw_skill[key]
         skill_meta_map[skill_name] = enriched_meta
 
     return {
@@ -1131,17 +1130,14 @@ def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_t
         (u, v) for u, v in e_pre
         if u in hands and obj_types.get(v) not in ("surface", "hand")
     ]
-    ## Only movable supported objects: a non-movable entity on a surface can never be
-    ## re-placed, so an On precondition for it is unsatisfiable if perception omits the
-    ## Supported init fact (and surface-surface edges arrive supporter-first, inverting On).
+    ## Include only movable objects in surface-placement preconditions.
     pre_surface_edges = [
         (u, v) for u, v in e_pre
         if u not in hands and obj_types.get(u) == "movable"
         and obj_types.get(v) == "surface"
     ]
 
-    # Unchanged holds: arms that hold objects both before and after the policy.
-    # Their grasps become stale due to policy stochasticity and need refreshing.
+    # Refresh grasps that persist across the learned policy.
     eff_hand_obj_set = set(map(tuple, meta.get("eff_hand_obj_edges", [])))
     arm_del_set = set(arm_del)
     refresh_arm_edges = sorted([
@@ -1192,18 +1188,14 @@ def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_t
     def _grefresh(h, o):    return _intern(refresh_grasp_vars, g_ctr, "g", h, o)
     def _pvar(o, s):        return _intern(pose_vars, p_ctr, "p", o, s)
 
-    # Allocate vars in deterministic order:
-    #   pre-existing grasps from E_pre first (bound in both pre and del effects),
-    #   then new grasps from arm_add (bound in ImitateGrasp pre and add effects),
-    #   then refresh grasps for unchanged holds (fresh from unified biop stream).
+    # Allocate grasp variables in a stable order for reproducible PDDL.
     for h, o in pre_arm_edges:
         _gvar(h, o)
     for h, o in arm_add:
         _gvar(h, o)
     for h, o in refresh_arm_edges:
         _grefresh(h, o)
-    # Pre-existing surface contacts from E_pre first (bound in pre and del effects),
-    # then new surface contacts from surface_add (bound in add effects only).
+    # Allocate surface-contact variables in a stable order.
     for o, s in pre_surface_edges:
         _pvar(o, s)
     for o, s in surface_add:
@@ -1250,9 +1242,7 @@ def _grounded_bioperation_action(meta, i, sk, planning_mode=DETAILED_MODE, obj_t
         pre += EdgeOps2Predicates("surface_pre", o, s, ctx)
 
     if enable_constraints:
-        # IsSafePolicy: inlined as a universal so universal_to_conditional compiles it into a
-        # conditional UNSATISFIABLE effect linked to the negated CFreeMDF stream -- this makes
-        # "move the blocking obstacle" reachable. CFreeMDF is keypose-free (both planning modes).
+        # Let the planner move an obstacle that violates the safety check.
         pre.append(
             "(forall (?cfo ?cfp) (imply "
             "(and (AtPose ?cfo ?cfp) (Movable ?cfo) (CanPick ?cfo) (SkillCheckObj ?sk ?cfo)) "
@@ -1368,9 +1358,7 @@ def build_domain_pddl(classified_skills, schema_arm_names=None, schema_object_na
         parts.append(pick)
         parts.append("")
     else:
-        # When all picks are learned, the generic coarse pick is redundant: it shares
-        # (Grasp ?a ?o ?g) with learnedPick_* but wins search on shorter preconditions,
-        # causing learnedPick_* (and its DoneSkill effect) to never be expanded.
+        # Omit coarse pick so search expands learned pick actions.
         if not has_attach:
             parts.append(_load_reachable_action_template("action_pick_coarse.pddl", "pick_coarse", enable_constraints))
             parts.append("")
@@ -1447,12 +1435,10 @@ def build_instantiated_stream_specs(classified_skills, env_names, planning_mode=
             arm1 = meta.get("grounding_arm1")
             arm2 = meta.get("grounding_arm2")
             raw_eff_grasps = meta.get("eff_hand_obj_edges", [])
-            # Enrich each (arm, obj) with the place skill name from the
-            # next LEARNED_DETACH skill that removes this edge.
+            # Associate each grasp with the later skill that releases it.
             eff_grasps = []
             for arm, obj in raw_eff_grasps:
-                # Keep only grasp refreshes that can be certified by a later
-                # LEARNED_DETACH stream (place/post-grasp network).
+                # Keep only refreshes that a later detach stream can certify.
                 if not _has_downstream_detach(arm, obj, i, classified_skills):
                     continue
                 place_skill_name = None

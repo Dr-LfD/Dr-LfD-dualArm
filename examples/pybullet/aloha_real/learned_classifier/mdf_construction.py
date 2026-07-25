@@ -26,9 +26,7 @@ from examples.pybullet.utils.pybullet_tools.utils import (
     joints_from_names, set_joint_positions, link_from_name, get_link_pose
 )
 from examples.pybullet.aloha_real.openworld_aloha.simple_worlds import load_aloha_world_flexible
-# customized_collision_fn (and its module visuomotor_replayer) is only needed by the offline
-# MDF construction path; it is imported lazily inside get_occupied_voxels_at_timestep so the
-# runtime query API (load_mdf_dict / query_mdf_safe) imports without that build-time dependency.
+# Import MDF-building code only when constructing a distance field.
 
 
 def create_voxel_grid(workspace_bounds, voxel_size):
@@ -168,15 +166,12 @@ def compute_edt_map(occupied_mask, voxel_size):
         edt_map: Array of same shape as occupied_mask, containing distance to nearest occupied voxel
                  Distance is in world units (meters)
     """
-    # scipy.ndimage.distance_transform_edt computes distance from each True pixel 
-    # to the nearest False pixel. We want distance from each voxel to the nearest occupied voxel.
+    # Invert occupancy so EDT measures distance to occupied voxels.
     
     # Invert mask: True for free space, False for occupied
     free_mask = ~occupied_mask
     
-    # Compute distance transform: distance from each True (free) voxel to nearest False (occupied) voxel
-    # The result is in voxel units, so we multiply by voxel_size to get meters
-    # Note: distance_transform_edt returns float64, and distances are in voxel coordinates
+    # Convert EDT voxel distances to world-space meters.
     edt_map_voxels = scipy.ndimage.distance_transform_edt(free_mask)
     edt_map = edt_map_voxels.astype(np.float64) * voxel_size
     
@@ -213,8 +208,7 @@ def load_demonstrations_hdf5(hdf5_paths):
             obs_grp = f['observations']
             obs_qpos = obs_grp['qpos'][()]  # Shape: (T, 14) for ALOHA
             
-            # Split into left and right arm joints
-            # ALOHA: left arm joints 0:7 (6 arm + 1 gripper), right arm joints 7:14
+            # Split the 14-value ALOHA configuration into left and right arms.
             l_joint_vals = obs_qpos[:, :7]  # Left arm joints
             r_joint_vals = obs_qpos[:, 7:14]  # Right arm joints
             
@@ -270,9 +264,7 @@ def construct_mdf(hdf5_paths, workspace_bounds, voxel_size=0.01,
     print(f"Created voxel grid with shape {grid_shape}, origin {grid_origin}, voxel size {voxel_size}")
     # The voxel-center grid is fixed for the whole run; build it once for the EE-tube path.
     ee_centers = voxel_centers_grid(grid_origin, voxel_size, grid_shape) if ee_only else None
-    # Drop table/base URDF links below z_min from occupancy: the ALOHA URDF includes the
-    # table, whose z~0 links otherwise paint a full-width swept floor band that makes every
-    # on-table xy look occupied. Precompute the below-floor z-layers once.
+    # Ignore low URDF links so the table does not fill the occupancy map.
     z_below_floor = None
     if z_min is not None:
         zs_grid = grid_origin[2] + (np.arange(grid_shape[2]) + 0.5) * voxel_size
@@ -300,15 +292,13 @@ def construct_mdf(hdf5_paths, workspace_bounds, voxel_size=0.01,
         
         # Process each timestep starting from start_frame_idx (subsampled by frame_stride)
         for t in range(actual_start_idx, demo_length, frame_stride):
-            # Set robot configurations for both arms directly using robot_entity
-            # ALOHA qpos format: [left_arm(6), left_gripper(1), right_arm(6), right_gripper(1)]
+            # Load the demonstration configuration into both robot arms.
             left_arm_qpos = qpos_demo_left[t][:6]  # 6 arm joints
             left_gripper_qpos = qpos_demo_left[t][6:7] if len(qpos_demo_left[t]) > 6 else []
             right_arm_qpos = qpos_demo_right[t][:6]  # 6 arm joints
             right_gripper_qpos = qpos_demo_right[t][6:7] if len(qpos_demo_right[t]) > 6 else []
             
-            # Set joint positions directly using robot_entity.joint_groups
-            # Left arm
+            # Apply the left-arm joint values before occupancy sampling.
             left_arm_joints = joints_from_names(robot_body, robot_entity.joint_groups['left_arm'])
             set_joint_positions(robot_body, left_arm_joints, left_arm_qpos)
             
@@ -330,10 +320,7 @@ def construct_mdf(hdf5_paths, workspace_bounds, voxel_size=0.01,
             #     right_gripper_positions = [right_gripper_qpos[0], -right_gripper_qpos[0]]
             #     set_joint_positions(robot_body, right_gripper_joints, right_gripper_positions)
             
-            # Restrict the swept volume to the ACTUAL insertion (post_mj_jointgrasp):
-            # pred_joint_vals is the transport phase where the two EEs are far apart; insertion
-            # begins when their distance drops below the threshold. Skip non-insertion frames so
-            # the danger zone is tight at the insertion point (not the convergence corridor).
+            # Ignore transport frames to model only the insertion danger zone.
             if ee_tool_links is not None:
                 tool_positions = [get_link_pose(robot_body, tl)[0] for tl in ee_tool_links]
             if ee_dist_threshold is not None:
@@ -370,8 +357,7 @@ def construct_mdf(hdf5_paths, workspace_bounds, voxel_size=0.01,
                 print(f"  Timestep {t}: Occupied {num_occupied}/{total_voxels} ({100*num_occupied/total_voxels:.1f}%), "
                       f"EDT range: [{np.min(edt_map):.4f}, {edt_max:.4f}]m, mean: {edt_mean:.4f}m")
             
-            # Update MDF: take minimum across timesteps
-            # This means we're tracking the CLOSEST the robot ever got to each voxel
+            # Retain the nearest robot distance observed for each voxel.
             mdf = np.minimum(mdf, edt_map)
             
             # Update occupied voxels mask: union across all timesteps
@@ -399,8 +385,7 @@ def construct_mdf(hdf5_paths, workspace_bounds, voxel_size=0.01,
     print(f"  Voxels with distance > 0.1m: {np.sum(mdf > 0.1)} ({100*np.sum(mdf > 0.1)/mdf.size:.1f}%)")
     print(f"  Voxels with distance > 0.2m: {np.sum(mdf > 0.2)} ({100*np.sum(mdf > 0.2)/mdf.size:.1f}%)")
     
-    # Note: MDF represents the MINIMUM distance the robot ever got to each voxel
-    # If the range is small, it means the robot moved through most of the workspace
+    # Report how closely the demonstration swept the workspace.
     
     # Print occupied voxels statistics
     num_occupied = np.sum(occupied_voxels_mask)
@@ -895,8 +880,7 @@ def construct_mdf_and_save_point_cloud(num_demos=None):
         'max': [0.5, 0.5, 0.5]       # [x_max, y_max, z_max]
     }
     
-    # Load demonstration files (HDF5 format)
-    # Update this path to point to your clean_cup demonstration HDF5 files
+    # Load the requested demonstration recordings.
     hdf5_dir = os.path.expandvars("${WS_ROOT}/aloha_data/clean_cup")  # override via WS_ROOT
     hdf5_files = []
     
@@ -1122,4 +1106,3 @@ if __name__ == '__main__':
         visualize_mdf(pkl, out_path=args.out_path)
     else:
         load_mdf_and_publish()
-

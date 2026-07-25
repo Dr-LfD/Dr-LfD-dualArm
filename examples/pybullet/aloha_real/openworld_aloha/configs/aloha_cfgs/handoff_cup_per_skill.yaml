@@ -1,11 +1,8 @@
-use_schema: true
-domain_path: 'examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_changes_domain.pddl'
-stream_path: 'examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_changes_stream.pddl'
-schema_config_path: 'examples/pybullet/aloha_real/openworld_aloha/configs/aloha_cfgs/handoff_cup_changes.json'
+# contact_predictor_checkpoint: 'data/outputs/2026.05.11/14.45.50_train_keypose_transformer_handoff_cup_multi_edge_wristview/checkpoints/latest.ckpt'
+contact_predictor_checkpoint: '/ssd1/chenyizhou/contact_ckpt/cup_right_arm.ckpt'
 
-
-sg_params:  
-  h5_parent_dir: "${WS_ROOT}/aloha_data/handoff_cup"
+sg_params:
+  h5_parent_dir: "/ssd1/aloha_data/handoff_cup"
   skill_name: 'handoff_cup'
   # skill_names: ['bimanual_0', 'grasp']
   skill_type: 'bimanualOr'
@@ -16,7 +13,7 @@ sg_params:
   output_dir: 'hdf5_out/handoff_cup'
   related_rbts: ['right', 'left']
   schema:
-    path: '../aloha_cfgs/handoff_cup_changes.json'
+    path: 'handoff_cup_changes.json'
 
   equi_ckpt_name: "logs/train/aloha_handoff_cup/handoff_grasp_128_new.pth" 
   # equi_ckpt_name: "logs/train/aloha_handoff_cup/handoff_grasp128_ddim.pth" 
@@ -51,7 +48,6 @@ LfD_params:
   env_type: 'real'
   DP_path: '${DIFFUSION_POLICY_ROOT}/'
   DP_input: 
-    bimanual_handoff_cup_per_skill: '${REPO_ROOT}/ckpt/dp_ckpts/handoff_cup/long_chunk/cluttered.ckpt'
-
-contact_predictor_checkpoint: '${REPO_ROOT}/ckpt/contact_ckpt/cup_right_arm.ckpt'
-
+    # bimanual_handoff_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/latest_3view.ckpt'
+    # bimanual_handoff_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/dp_h32.ckpt'
+    bimanual_handoff_cup_per_skill: '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/cluttered.ckpt'

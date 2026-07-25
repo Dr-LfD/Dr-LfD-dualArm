@@ -119,10 +119,7 @@ from examples.pybullet.aloha_real.openworld_aloha.grasp.utils import gpd_predict
 SWITCH_BEFORE = "grasp"  # contact | grasp | pregrasp | arm | none # TODO: tractor
 BASE_COST = 1
 
-# Per-(arm, object) context shared by the unimanual learned-trajectory generators.
-# Everything here is invariant across _bounded_learned_trajs retries, so it is built
-# once by unimanual_traj_prep (incl. the resolved wrapper/config and a prebuilt
-# endpoint-IK solver) and reused on every attempt.
+# Shared unimanual trajectory context.
 TrajPrep = namedtuple(
     "TrajPrep",
     "obs_key agent_obs eef_key gripper_key side arm_gripper_group tool_name "
@@ -236,8 +233,7 @@ def get_gripper_path(robot, gripper_jpath_1d, arm_gripper_associate_ids = None, 
         gripper_arr = np.array(gripper_path_2d)  # shape (M, 2)
         ids = np.array(arm_gripper_associate_ids)
 
-        # Anchor each gripper waypoint at the center of its arm-waypoint run, so the
-        # gripper transitions at the arm's pace (not uniform speed).
+        # Match gripper timing to arm motion.
         anchor_positions = []
         anchor_wp_indices = []
         for j in range(M):
@@ -287,8 +283,7 @@ def get_jspace_path(robot, obj_pose, gpose_traj, side, hand_obj_dist_fn, offset_
 
 
 
-    # Grasp waypoint = where the EE is nearest the object cloud. Skip the inserted
-    # first/last pregrasp waypoints so switch_id - 1 maps to the demo index.
+    # Find the nearest grasp waypoint.
     switch_id = min(range(1, len(gpose_waypoints) - 1),
                     key=lambda i: hand_obj_dist_fn(gpose_waypoints[i][0]))
     return arm_path_and_out_ids, switch_id
@@ -328,8 +323,7 @@ def densify_ee_path(sparse_poses, step_m=0.01, step_rad=0.05):
             pos = (1.0 - frac) * p0 + frac * p1
             quat = quaternion_slerp(q0, q1, frac)
             dense.append((tuple(pos), tuple(quat)))
-            # Target sparse waypoint is (i + 1); +1 for get_gripper_path's
-            # prepended start padding -> gripper index (i + 2).
+            # Account for sparse and gripper-path offsets.
             source_ids.append(i + 2)
     return dense, source_ids
 
@@ -387,35 +381,28 @@ def get_object_obs(obj_dict, pose = None, use_rgb = False):
     return agent_obs
 
 def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fixed_obj = [],  is_dmg = True, initial_pc_dict = None,  eff_grasps = None, **kwargs):
+    """Return the stream generator that produces trajectories for ``skill_name``."""
     ee_traj_mode = bool(kwargs.pop("ee_traj_mode", False))
     use_gui = bool(kwargs.pop("use_gui", False))
 
     robot_saver = BodySaver(robot, client=robot.client)
 
-    # Backends. grasp_backend (ATTACH only; DETACH stays diffusion): 'diffusion'
-    # (learned policy) | 'm2t2' | 'gpd'. place_backend: 'diffusion' | 'generic'
-    # (geometric placement on the goal Region via get_plan_place_fn).
+    # Read the selected grasp and placement generator backends.
     grasp_backend = kwargs.get('grasp_backend', 'diffusion')
     place_backend = kwargs.get('place_backend', 'diffusion')
-    # Per-generator caps that exhaust via StopIteration so PDDLStream's max_tamp_time
-    # (checked only between stream calls) can interrupt a degenerate scene instead of
-    # one next() spinning forever. learned_traj_max_attempts counts CONSECUTIVE
-    # failures (resets on success), so healthy bindings stay effectively unbounded.
+    # Limit consecutive failed sampling attempts before the stream stops.
     generic_place_max_attempts = int(kwargs.get('generic_place_max_attempts', 20))
     learned_traj_max_attempts = int(kwargs.get('learned_traj_max_attempts', 40))
     m2t2_grasp_wrapper = kwargs.get('m2t2_grasp_wrapper')
     m2t2_contact_radius = kwargs.get('m2t2_contact_radius', 0.03)
-    # grasp_depth: forward shift (m) along the grasp approach axis so the TCP
-    # (~0.1 m ahead of the reported pose origin) reaches the contact, not short of it.
+    # Shift M2T2 grasps from the predicted frame to the TCP contact point.
     m2t2_grasp_depth = kwargs.get('m2t2_grasp_depth', 0.10)
     m2t2_max_prediction_batches = kwargs.get('m2t2_max_prediction_batches', 5)
-    # GPD backend: detects grasps on the target object cloud; gpd_camera_point is the
-    # world-frame viewpoint that orients GPD's approach directions.
+    # Read the world-frame camera point that orients GPD grasp proposals.
     gpd_camera_point = kwargs.get('gpd_camera_point')
     gpd_grasp_depth = kwargs.get('gpd_grasp_depth', 0.10)
     gpd_max_candidates = kwargs.get('gpd_max_candidates', 10)
-    # Stationary dwell (replay steps) at the grasp pose so the m2t2/gpd gripper closes
-    # while the arm holds still, instead of clipping the object mid-descent.
+    # Hold the arm at the grasp pose while the gripper closes.
     grasp_close_dwell_steps = int(kwargs.get('grasp_close_dwell_steps', 10))
 
     skillwise_sgs_flattend = {
@@ -426,9 +413,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
 
     skill_to_env = build_skill_to_env_map(equivSkill_info_dict)
 
-    # Per-object cKDTree over the object-frame cloud, built once and reused across
-    # bindings (the tree is pose-independent; queries transform into the object frame).
-    # Used by hand_obj_dist_fn to pick the grasp waypoint as the nearest-point approach.
+    # Cache each object's point cloud for repeated nearest-point queries.
     _obj_kdtree_cache = {}
 
     def _object_kdtree(obj):
@@ -438,9 +423,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             _obj_kdtree_cache[id(obj)] = tree
         return tree
 
-    # Capture the eff_grasps mapping for the unified biop-keypose stream.
-    # Each entry is (schema_arm_name, schema_obj_name) in the same order as
-    # the extra (obj, pose) arguments the stream will pass to the generator.
+    # Keep schema grasp mappings aligned with BiOp stream arguments.
     _eff_grasps_mapping = list(eff_grasps) if eff_grasps else []
 
     
@@ -538,8 +521,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                                           joint_space_exec=True),
                 }
 
-            # Compute post-grasp for each held object using Phi_tau.
-            # _eff_grasps_mapping aligns 1:1 with the (obj, pose) stream args.
+            # Generate a post-grasp for every object supplied by the BiOp stream.
             grasps = []
             for idx, (obj, pose) in enumerate(objs_and_poses):
                 schema_arm = _eff_grasps_mapping[idx][0]
@@ -616,8 +598,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
         obj_tree = _object_kdtree(equiv_obj)
 
         def hand_obj_dist_fn(hand_center):
-            # Nearest-point distance from the world-frame EE point to the object,
-            # evaluated in the object frame against the cached cloud.
+            # Return the end-effector distance to this object's local point cloud.
             point_obj = tform_point(invert(pose.get_pose()), hand_center)
             return float(obj_tree.query(point_obj)[0])
         
@@ -638,8 +619,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
         ee_step_rad = float(current_skill_info.get('ee_traj_step_rad', 0.05))
         ee_steps_per_wp = int(current_skill_info.get('ee_traj_steps_per_waypoint') or 1)
 
-        # Endpoint-IK solver for EE-traj mode (schema executor's _aq_start/_aq_end).
-        # Built once here so retries don't rebuild the IK machinery.
+        # Build one endpoint IK solver for all retries of this trajectory.
         def _build_endpoint_ik_solver():
             tool_link = link_from_name(robot, tool_name, **kwargs)
             ik_info = robot.ik_info[side]
@@ -703,8 +683,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
 
             skill_type = categorize_skill(sk)
 
-            # Bracket the learned grasp with an approach (start) + retreat (end)
-            # pregrasp, mirroring joint-space get_jspace_path. ATTACH only.
+            # Add pregrasp approach and retreat poses around attach trajectories.
             gripper_1d = group_actions[gripper_key].reshape(-1)
             n_pregrasp = 0
             if skill_type == 'ATTACH' and sparse_poses:
@@ -712,8 +691,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                 pre = pregrasp_pose_from_waypoint(robot, equiv_obj, obj_pose_w, sparse_mats[0])
                 post = pregrasp_pose_from_waypoint(robot, equiv_obj, obj_pose_w, sparse_mats[-1])
                 sparse_poses = [pre] + sparse_poses + [post]
-                # Pad the gripper schedule to match: open through approach, closed
-                # through retreat. n_pregrasp counts the START prepend only.
+                # Pad gripper commands to cover the added pregrasp poses.
                 gripper_1d = np.concatenate([gripper_1d[:1], gripper_1d, gripper_1d[-1:]])
                 n_pregrasp = 1
 
@@ -726,12 +704,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                 return None, None, None, None
             out_ids = np.array(out_ids_list)
 
-            # ATTACH grasp-contact index (trans_w) = the model's in_hand onset: first
-            # frame where in_hand flips 0->1 (object becomes held). in_hand shares
-            # shifted_eef_traj's sparse indexing, so no densify/out_ids/n_pregrasp remap.
-            # Model must predict it (predict_in_hand=True) — no distance-heuristic
-            # fallback. All-zeros is legitimate (grasp completes past the chunk end) ->
-            # last frame. Non-ATTACH (place/release) keeps lowest-z for pose reconstruction.
+            # Use the model's first in-hand frame as the attach contact point.
             if skill_type == 'ATTACH':
                 in_hand = group_actions.get('in_hand')
                 if in_hand is None:
@@ -749,8 +722,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                 sparse_switch_id = int(onset[0]) if onset.size else len(shifted_eef_traj) - 1
             else:
                 switch_id_dense = int(np.argmin([hand_obj_dist_fn(p[0]) for p in ee_dense]))
-                # out_ids maps a dense pose -> augmented sparse index + 1; subtract
-                # the prepended pregrasp (n_pregrasp) to land back on the demo index.
+                # Convert the selected dense waypoint back to a demonstration frame.
                 sparse_switch_id = int(out_ids_list[switch_id_dense]) - 1 - n_pregrasp
             sparse_switch_id = min(max(sparse_switch_id, 0), len(shifted_eef_traj) - 1)
             trans_w = np.array(shifted_eef_traj[sparse_switch_id], copy=True)
@@ -762,8 +734,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                 print("No valid endpoint IK found for EE trajectory — cannot build LearnedGrasp Conf")
                 return None, None, None, None
 
-            # Gripper path aligned to densified ee path indices (gripper_1d carries
-            # the prepended open grip for the approach when a pregrasp was added).
+            # Align gripper commands with the EE path.
             gripper_path = get_gripper_path(
                 robot,
                 gripper_1d,
@@ -771,8 +742,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                 skill_type=skill_type,
             )
 
-            # .path uses endpoint joint confs for symbolic/bridging compatibility
-            # (sparse placeholder — NOT used for OSC execution, which reads ee_path)
+            # Store endpoint joints so symbolic planning can bridge this EE path.
             n = len(ee_dense)
             arm_placeholder = np.linspace(conf_start_arm, conf_end_arm, num=n)
             arm_gripper_path = np.concatenate((arm_placeholder, gripper_path), axis=1)
@@ -877,19 +847,14 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             )
         return np.concatenate(clouds, axis=0)
 
-    # Constant rotations mapping a predictor's grasp frame onto the panda EE convention
-    # (approach +Z, fingers close +Y) that get_jspace_path/IK target. Right-multiplying a
-    # world grasp leaves translation intact; _apply_ee_correction then shifts along +Z.
-    #
-    # M2T2 (contact-graspnet: close +X, approach +Z): +90deg roll about Z maps close X->Y.
+    # Convert M2T2 grasp orientations to the Panda end-effector frame.
     _M2T2_TO_EE_ROLL = np.array([
         [0.0, -1.0, 0.0, 0.0],
         [1.0,  0.0, 0.0, 0.0],
         [0.0,  0.0, 1.0, 0.0],
         [0.0,  0.0, 0.0, 1.0],
     ])
-    # GPD (aloha tool: approach +X, close +Y, hand +Z): 90deg about Y maps +X->panda +Z,
-    # keeps +Y closing. (Fed raw to the aloha ee_gripper_link, already +X approach.)
+    # Convert GPD grasp orientations to the Panda end-effector frame.
     _GPD_TO_EE = np.array([
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
@@ -933,8 +898,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
 
         arm_path = np.array(arm_path)
         out_ids = np.array(out_ids)
-        # Dense steps targeting the final (retreat pregrasp) waypoint form the
-        # retreat; everything before it is descent + arrival at the grasp pose.
+        # Split the generated joint path into descent and retreat segments.
         retreat_mask = out_ids == out_ids.max()
         retreat_start = max(int(np.argmax(retreat_mask)), 1) if retreat_mask.any() else len(arm_path)
         approach_arm = arm_path[:retreat_start]
@@ -943,8 +907,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
 
         open_row = robot.joint2pos_gripper(robot.max_finger_joint)
         closed_row = robot.joint2pos_gripper(robot.min_finger_joint)
-        # Command full close from the first dwell step (must lead the physical fingers,
-        # which need the whole dwell to seat before the retreat).
+        # Close the gripper during the dwell before starting the retreat.
         gripper_rows = np.array(
             [open_row] * len(approach_arm)
             + [closed_row] * (grasp_close_dwell_steps + len(retreat_arm))
@@ -994,8 +957,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
 
         # The same world-frame cloud that built pybullet gives M2T2 its context.
         scene_xyz = _assemble_scene_xyz()
-        # Per-object segmented cloud at the queried pose (from unimanual_traj_prep);
-        # used to keep only grasps whose contact lands on this target object.
+        # Reject M2T2 proposals whose contact point misses the target object.
         target_kdtree = cKDTree(np.asarray(agent_obs[obs_key])[:, :3])
 
         for _batch in range(m2t2_max_prediction_batches):
@@ -1054,8 +1016,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
         obs_key, agent_obs = prep[0], prep[1]
         calib = _grasp_calibration(sk)
 
-        # World-frame target object cloud (from unimanual_traj_prep); GPD detects grasps
-        # on it directly. camera_point only orients GPD's approach directions.
+        # Run GPD on the target object's world-frame point cloud.
         target_pts_world = np.asarray(agent_obs[obs_key])[:, :3]
         camera_pose = Pose(point=Point(*gpd_camera_point))
 
@@ -1126,9 +1087,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             )
             yield Tuple(place_pose_out, learned_place_payload)
 
-    # Generic DETACH backend: geometric placement on the goal surface instead of the
-    # diffusion policy. buffer=0 / percent=1.0 keeps the placed object's AABB fully
-    # inside the surface AABB (no rim overhang on small surfaces like plates).
+    # Create a geometric placement sampler for generic detach skills.
     _placement_kwargs = {
         k: v for k, v in kwargs.items()
         if k not in ('buffer', 'percent')
@@ -1144,8 +1103,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             raise ValueError(f"Skill {sk} is not a detach skill!")
 
         robot_saver.restore()
-        # The placement sampler reads the surface OOBB from the current pybullet
-        # state (its own surface_pose.assign() is commented out), so sync it.
+        # Assign the current surface pose before generating placements.
         surface_pose.assign()
 
         attempts = 0
@@ -1800,13 +1758,10 @@ def get_plan_motion_fn(
             reso_deg = 3  # 10
             resolutions = math.radians(reso_deg) * np.ones(len(plan_joints))
 
-            # Coarse collisions (large clearance) use full-geometry checks; tight
-            # clearances default to AABB. Caller may override via use_aabb.
+            # Use full geometry for coarse clearance and AABBs for tight clearance.
             resolved_use_aabb = (abs(collision_distance) <= 0.5) if use_aabb is None else use_aabb
 
-            # Penalize proximal/wide-range joints to reduce redundant swings when the
-            # target is a small EE displacement (ee_traj_mode only). Weights are a
-            # per-robot property (robot.arm_joint_weights); None -> uniform weighting.
+            # Bias short EE motions away from wide-swing arm joints.
             weights = None
             if ee_traj_mode and "arm" in group:
                 base_w = arm_joint_weights or robot.arm_joint_weights
@@ -1864,9 +1819,7 @@ def get_plan_motion_fn(
 
 
 #######################################################
-# Reachability + MDF policy-safety constraints (ALOHA real robot).
-# These are only bound into the stream map when the per-task `use_constraints` flag is on
-# (see problem_construction); reachability additionally self-no-ops for non-aloha robots.
+# Stream predicates for reachability and minimum-distance safety checks.
 #######################################################
 
 
@@ -1881,9 +1834,7 @@ def is_reachable(robot, arm, pose, oracle):
 
 
 def get_reachability_test(robot, **kwargs):
-    # Resolve the coverage-map oracle once per problem (cached loader); the test is then
-    # evaluated per (arm, obj, pose) without re-loading the map. Non-aloha robots get no
-    # oracle and are always reachable.
+    # Load one reachability oracle for every test created for this robot.
     oracle = (get_reachability(REACH_MAP_ARTIFACT, REACH_COVERAGE_THRESHOLD)
               if 'aloha' in robot.name else None)
 
@@ -1903,8 +1854,7 @@ def get_mdf_clear_test(mdf_data, safety_margin=0.05):
     from examples.pybullet.utils.pybullet_tools.utils import tform_from_pose
     from examples.pybullet.aloha_real.learned_classifier.mdf_construction import query_mdf_safe
 
-    # labeled_points are object-frame and pose-invariant; cache the homogeneous (N, 4) lift
-    # per object so each call only runs the per-pose transform.
+    # Cache homogeneous object points so each safety test only transforms them.
     _homog_cache = {}
 
     def _obj_homog(obj):
