@@ -34,8 +34,8 @@ sg_params:
   hand_hand_dist_threshold: 0.35
 
   # trained on per_skill_agent
-  equi_ckpt_name: "logs/train/dmg_assembly/200demo_inhand-fps.pth"
-  biop_ckpt_name: "logs/train/dmg_assembly/ckpt_perskill_jpose.pth"
+  equi_ckpt_name: "${REPO_ROOT}/ckpt/dmg_assembly/equi.pth"
+  biop_ckpt_name: "${REPO_ROOT}/ckpt/dmg_assembly/biop.pth"
   equi_config_name: "assembly_per_skill"
 
   # EE-traj densification speed controls.
@@ -50,14 +50,8 @@ LfD_params:
   DP_path: '${DIFFUSION_POLICY_ROOT}'
   env_type: 'dmg'
   DP_input:
-    two_arm_three_piece_assembly: '${DIFFUSION_POLICY_ROOT}/data/outputs/two_arm_assembly/sg_100demo_0.65.ckpt'
-    # two_arm_three_piece_assembly: '${DIFFUSION_POLICY_ROOT}/data/outputs/two_arm_assembly/1000demo0.720.ckpt'
-
-  # lfd_alg: 'SDP'
-  # DP_path: '${SPHERICAL_DP_ROOT}/'
-  # env_type: 'dmg'
-  # DP_input:
-  #   two_arm_three_piece_assembly: 'data/outputs/two_arm_three_piece_assembly/epoch=0440-test_mean_score=1.000.ckpt'
+    two_arm_three_piece_assembly: '${REPO_ROOT}/ckpt/dmg_assembly/policy.ckpt'
+ 
 
   vid_record: False
   DP_output: './data/eval/dmg_assembly/'

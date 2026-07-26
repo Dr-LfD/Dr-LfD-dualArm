@@ -323,7 +323,7 @@ def densify_ee_path(sparse_poses, step_m=0.01, step_rad=0.05):
             pos = (1.0 - frac) * p0 + frac * p1
             quat = quaternion_slerp(q0, q1, frac)
             dense.append((tuple(pos), tuple(quat)))
-            # Account for sparse and gripper-path offsets.
+            # +1 for sparse target waypoint, +1 for get_gripper_path's prepended start → gripper index (i+2).
             source_ids.append(i + 2)
     return dense, source_ids
 
@@ -722,7 +722,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                 sparse_switch_id = int(onset[0]) if onset.size else len(shifted_eef_traj) - 1
             else:
                 switch_id_dense = int(np.argmin([hand_obj_dist_fn(p[0]) for p in ee_dense]))
-                # Convert the selected dense waypoint back to a demonstration frame.
+                # out_ids is augmented-sparse +1; subtract n_pregrasp to recover the demo frame index.
                 sparse_switch_id = int(out_ids_list[switch_id_dense]) - 1 - n_pregrasp
             sparse_switch_id = min(max(sparse_switch_id, 0), len(shifted_eef_traj) - 1)
             trans_w = np.array(shifted_eef_traj[sparse_switch_id], copy=True)
@@ -847,14 +847,14 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             )
         return np.concatenate(clouds, axis=0)
 
-    # Convert M2T2 grasp orientations to the Panda end-effector frame.
+    # M2T2 (close+X, approach+Z) → Panda EE (close+Y, approach+Z): +90° roll about Z.
     _M2T2_TO_EE_ROLL = np.array([
         [0.0, -1.0, 0.0, 0.0],
         [1.0,  0.0, 0.0, 0.0],
         [0.0,  0.0, 1.0, 0.0],
         [0.0,  0.0, 0.0, 1.0],
     ])
-    # Convert GPD grasp orientations to the Panda end-effector frame.
+    # GPD (approach+X, close+Y) → Panda EE (close+Y, approach+Z): +90° about Y.
     _GPD_TO_EE = np.array([
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
@@ -1834,7 +1834,7 @@ def is_reachable(robot, arm, pose, oracle):
 
 
 def get_reachability_test(robot, **kwargs):
-    # Load one reachability oracle for every test created for this robot.
+    # Cache one oracle per robot; each (arm, obj, pose) test queries it without reloading.
     oracle = (get_reachability(REACH_MAP_ARTIFACT, REACH_COVERAGE_THRESHOLD)
               if 'aloha' in robot.name else None)
 
