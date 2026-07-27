@@ -110,10 +110,6 @@ _EDGE_OP_TO_INTERNAL = {"Add": "add", "Del": "remove"}
 
 def parse_config(config_path, object_mapping=None):
     """Parse a skill-schema config JSON into (initial_graph, skills, objects_dict).
-
-    The ``edge_ops`` ``Add``/``Del`` verbs are mapped to the internal ``add``/``remove``
-    ``contact_changes`` representation; per-skill extras (``effect_detection``,
-    ``timestamps``, ``skill_type``, ``lfd_timeout``) are carried through verbatim.
     """
     with open(config_path, "r") as f:
         data = json.loads(apply_schema_object_mapping(f.read(), object_mapping))
@@ -144,16 +140,8 @@ def parse_config(config_path, object_mapping=None):
                 edge = ast.literal_eval(edge)
             contact_changes.append([list(edge), _EDGE_OP_TO_INTERNAL[op]])
 
-        if "lfd_timeout" in entry:
-            lfd_timeout = entry["lfd_timeout"]
-            if isinstance(lfd_timeout, bool) or not isinstance(lfd_timeout, int) or lfd_timeout <= 0:
-                raise ValueError(
-                    f"Skill {entry['name']!r} in {config_path} declares lfd_timeout "
-                    f"{lfd_timeout!r}; expected a positive integer step count."
-                )
-
         skill_entry = {"description": entry["name"], "contact_changes": contact_changes}
-        for key in ("effect_detection", "timestamps", "skill_type", "lfd_timeout"):
+        for key in ("effect_detection", "timestamps", "skill_type"):
             if key in entry:
                 skill_entry[key] = entry[key]
         skills.append(skill_entry)
@@ -932,9 +920,8 @@ def load_runtime_schema_metadata(skill_yaml_paths, env_names, root_path=None):
     for raw_skill, meta, skill_name in zip(composed_skills, classified, skill_names):
         enriched_meta = dict(meta)
         enriched_meta["skill_name"] = skill_name
-        for key in ("effect_detection", "lfd_timeout"):
-            if key in raw_skill:
-                enriched_meta[key] = raw_skill[key]
+        if "effect_detection" in raw_skill:
+            enriched_meta["effect_detection"] = raw_skill["effect_detection"]
         skill_meta_map[skill_name] = enriched_meta
 
     return {

@@ -1,8 +1,25 @@
 # Dr-LfD-dualArm
 
+<p align="center">
+  <img src="https://dr-lfd.github.io/DR-LfD-website/paper-figures/tro-teaser.png" alt="DR-LfD system overview" width="100%">
+</p>
+
 **Decompose and Reorganize**: Planning with Primitives and Visuomotor Policies Learned from Demonstrations.
 
-Source code: https://github.com/Dr-LfD/Dr-LfD-dualArm
+[![Project Page](https://img.shields.io/badge/Project-Page-2f80ed)](https://dr-lfd.github.io/DR-LfD-website/)
+[![Paper](https://img.shields.io/badge/arXiv-Coming_Soon-b31b1b)](https://github.com/Dr-LfD/Dr-LfD-dualArm)
+[![Code](https://img.shields.io/badge/GitHub-DR--LfD-181717?logo=github)](https://github.com/Dr-LfD/Dr-LfD-dualArm)
+[![Checkpoints](https://img.shields.io/badge/Hugging%20Face-Checkpoints-ffcc4d?logo=huggingface)](https://huggingface.co/ConvexBuchi/dr-lfd-ckpt)
+[![Video](https://img.shields.io/badge/Demo-Video-8e44ad)](#rollout-videos)
+
+## Rollout videos
+
+Click a preview to watch the full rollout on the
+[project website](https://dr-lfd.github.io/DR-LfD-website/).
+
+| Threading | Three-piece assembly |
+|:---:|:---:|
+| <a href="https://dr-lfd.github.io/DR-LfD-website/libero_dmg/threading.mp4"><img src="https://dr-lfd.github.io/DR-LfD-website/posters/libero_dmg/threading.jpg" alt="DR-LfD threading rollout" width="100%"></a> | <a href="https://dr-lfd.github.io/DR-LfD-website/libero_dmg/assemble.mp4"><img src="https://dr-lfd.github.io/DR-LfD-website/posters/libero_dmg/assemble.jpg" alt="DR-LfD three-piece assembly rollout" width="100%"></a> |
 
 ## What is DR-LfD
 
@@ -23,6 +40,21 @@ Follow [docs/source/Installation.md](docs/source/Installation.md) for the
 simulation route (conda env `dr-lfd`, `requirements.txt`, customized forks,
 native builds).
 
+## Pretrained checkpoints
+
+Download the released visuomotor-policy, equivariant-primitive, and bimanual
+keypose checkpoints from
+[Hugging Face](https://huggingface.co/ConvexBuchi/dr-lfd-ckpt):
+
+```bash
+python download_ckpts.py                  # threading and assembly
+python download_ckpts.py --task threading # one task only
+python download_ckpts.py --task assembly
+```
+
+The files are placed under `ckpt/dmg_threading/` and `ckpt/dmg_assembly/`,
+matching the paths used by the task configurations.
+
 ## Configuration (paths)
 
 External dependency paths are not hardcoded. Config files and scripts reference
@@ -32,6 +64,56 @@ dependencies are vendored submodules and auto-discovered, so the simulation rout
 needs no `.env`; copy `.env.example` to `.env` only for overrides or real-robot
 data. Any other unset variable is left literal so a missing path fails loudly.
 See [Configuration](docs/source/Configuration.md).
+
+## Training
+
+Training data is not bundled with the repository. Place each dataset at the
+path declared by its task YAML, or update `dataset_path` in that YAML before
+launching.
+
+### Visuomotor policies
+
+The threading and assembly visuomotor policies use the scene-graph-conditioned
+diffusion-transformer workspace:
+
+```bash
+cd diffusion_policy_sg
+
+# threading
+python train.py \
+    --config-name=train_robomimic_image_sg_transformer \
+    task=two_arm_threading_image_sg
+
+# three-piece assembly
+python train.py \
+    --config-name=train_robomimic_image_sg_transformer \
+    task=two_arm_three_piece_assembly_image_sg
+```
+
+### Object-centric primitives
+
+The grasp primitives use one SIM(3)-equivariant conditional model per task:
+
+```bash
+cd primitive_learning
+
+# threading
+python -m equiv_primitive.policies.train_skills \
+    --config-name dmg_threading_per_skill \
+    prefix=dmg_threading \
+    data.dataset.path=/path/to/data/dmg_threading/
+
+# three-piece assembly
+python -m equiv_primitive.policies.train_skills \
+    --config-name dmg_assembly_per_skill \
+    prefix=dmg_assembly \
+    data.dataset.path=/path/to/data/dmg_assembly/
+```
+
+Weights & Biases logging is enabled by default. Pass `use_wandb=false` to the
+primitive commands to disable it. See
+[`primitive_learning/README.md`](primitive_learning/README.md) for model and
+evaluation details.
 
 ## Run the simulation examples
 

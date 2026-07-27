@@ -404,10 +404,10 @@ class DMG_OSC_planner(object):
             self._execute_perception_connector(self._build_perception_home_connector())
         self._refresh_object_meshes(target_objects)
 
-    def perceive_env(self, updated_state, lane_checks, refresh_perception=True):
+    def perceive_env(self, updated_state, lane_checks):
         """Post-execution subgoal detection; returns (state, achieved, results).
 
-        Optionally refreshes meshes before detection and retries with arms home.
+        Refreshes the meshes of the objects the stage moved
         """
         if not lane_checks:
             updated_state = preserve_arm_confs(
@@ -419,13 +419,12 @@ class DMG_OSC_planner(object):
         removed = self.current_state - updated_state
         affected_objects = [f[1] for f in search_facts(added | removed, 'atpose')]
 
-        if refresh_perception:
-            self._refresh_affected_object_meshes(affected_objects, reset_home=False)
+        self._refresh_affected_object_meshes(affected_objects, reset_home=False)
         lane_results = self._primitive_subgoal_detector.detect(
             lane_checks, affected_objects=affected_objects
         )
         subgoal_achieved = all(lane_results.values()) if lane_results else True
-        if refresh_perception and not subgoal_achieved:
+        if not subgoal_achieved:
             print('Subgoal not achieved after perception, replan locally')
             self._refresh_affected_object_meshes(affected_objects, reset_home=True)
             lane_results = self._primitive_subgoal_detector.detect(
@@ -465,27 +464,6 @@ class DMG_OSC_planner(object):
         if self.effect_monitor is not None and hasattr(self.effect_monitor, "close"):
             self.effect_monitor.close()
         self.effect_monitor = None
-
-    def _resolve_lfd_timeout(self, subgoals):
-        """This stage's per-segment BC step budget, from its schema ``lfd_timeout``."""
-        skill_names = {
-            getattr(fact[1], "value", fact[1])
-            for lane_subgoal in subgoals.values() if lane_subgoal
-            for fact in lane_subgoal if "doneskill" in str(fact[0]).lower()
-        }
-        if len(skill_names) != 1:
-            raise ValueError(
-                f"BC stage needs exactly one DoneSkill to resolve lfd_timeout; got "
-                f"{sorted(map(str, skill_names))}"
-            )
-        skill_name = skill_names.pop()
-        skill_meta = self.schema_skill_metas.get(skill_name) or {}
-        if "lfd_timeout" not in skill_meta:
-            raise ValueError(
-                f"BC skill {skill_name!r} declares no 'lfd_timeout'; add it to that "
-                f"skill's entry in the task's *_changes.json schema config."
-            )
-        return int(skill_meta["lfd_timeout"])
 
     def _select_effect_monitor_skill_metas(self, subgoals):
         if len(self.sg_param.get('robots', [])) < 2:
@@ -604,8 +582,6 @@ class DMG_OSC_planner(object):
                         break
                 elif achieved:
                     break
-                if kind == 'barrier':
-                    self.current_state = self._sync_live_arm_atconfs(self.current_state)
                 print(f'\033[33m[online_tamp] {kind} stage subgoal not achieved, '
                       f'retry {attempt + 1}/{self.MAX_STAGE_RETRIES}\033[0m')
 
@@ -704,28 +680,17 @@ class DMG_OSC_planner(object):
         """
         subgoals = {key: chk['subgoal'] for key, chk in checks.items()}
         stop_mode = "bc" if getattr(seq, 'graphstate_markers', ()) else "replan"
-        is_barrier = stop_mode == "bc"
-        lfd_timeout = self._resolve_lfd_timeout(subgoals) if stop_mode == "bc" else None
         self._begin_contact_monitoring(subgoals)
         try:
-            status = self.execute_robosuite_plan(
-                seq, stop_mode=stop_mode, lfd_timeout=lfd_timeout
-            )
+            status = self.execute_robosuite_plan(seq, stop_mode=stop_mode)
         finally:
             self._end_contact_monitoring()
 
         # Return terminal states before they can be replanned.
         if status in ('fail', 'success'):
             return status, self.current_state, status == 'success', {}
-        if status == 'effect_miss':
-            return status, self.current_state, False, {
-                key: False for key in unit_states
-            }
-
         merged_state = merge_lane_states(self.current_state, unit_states.values())
-        verified_state, achieved, results = self.perceive_env(
-            merged_state, checks, refresh_perception=not is_barrier
-        )
+        verified_state, achieved, results = self.perceive_env(merged_state, checks)
         verified_state = set(verified_state)
         for key, unit_state in unit_states.items():
             if results.get(key, True):
@@ -735,22 +700,6 @@ class DMG_OSC_planner(object):
                 verified_state, added_facts=added, removed_facts=removed
             )
         return status, verified_state, achieved, results
-
-    def _sync_live_arm_atconfs(self, state):
-        """Replace symbolic arm configurations with the current simulator joints."""
-        live_jposes = self.lfd.get_cur_jpose_robosuite()
-        if live_jposes is None:
-            raise RuntimeError('Cannot retry barrier: live joint pose unavailable')
-        synced_state = set(state)
-        for arm in self.robot_entity.arms:
-            if arm not in live_jposes:
-                raise RuntimeError(f'Cannot retry barrier: live joint pose missing for {arm}')
-            synced_state = {
-                fact for fact in synced_state
-                if not (len(fact) >= 3 and str(fact[0]).lower() == 'atconf' and fact[1] == arm)
-            }
-            synced_state.add(('AtConf', arm, GroupConf(self.robot_entity, arm, live_jposes[arm])))
-        return synced_state
 
     def _plan_lane_batch(self, lane, batch):
         """Bind this planner's state to the shared schema fast-path."""
@@ -789,14 +738,10 @@ class DMG_OSC_planner(object):
         time.sleep(duration)
         return ts
 
-    def execute_robosuite_plan(self, seq, stop_mode='replan', lfd_timeout=None):
+    def execute_robosuite_plan(self, seq, stop_mode='replan'):
         """Run `seq` in controller stages (OSC replay, optional JOINT_POSITION approach), falling back to BC."""
         if stop_mode not in {'replan', 'bc'}:
             raise ValueError(f"Unsupported stop_mode: {stop_mode!r}")
-        if stop_mode == 'bc' and lfd_timeout is None:
-            raise ValueError("BC execution requires an lfd_timeout step budget")
-
-
         pre_seq, joint_cmds, post_seq = self._split_joint_space_exec(seq)
         # Stage generators are created lazily; iterate_process_sequence seeds from the live robot state.
         stages = [(
@@ -838,8 +783,6 @@ class DMG_OSC_planner(object):
                     doing_tamp = False
                     self.lfd.set_bc_controller()
             else:
-                if self.lfd.t - self.lfd.t_bc_start >= lfd_timeout:
-                    return 'effect_miss'
                 self.lfd.inference_once()
                 if self._effect_monitor_completed():
                     print("Effect monitor completed primitive")
@@ -850,12 +793,6 @@ class DMG_OSC_planner(object):
                 self.success = True
                 break
         else:
-            if stop_mode == 'bc':
-                # A retry needs budget to replay its re-approach; without it, fail now.
-                if self.lfd.t >= self.lfd.max_timesteps:
-                    return 'fail'
-                print("LfD effect not achieved; retrying stage")
-                return 'effect_miss'
             print("Task failed!")
             self.success = False
 
@@ -1072,7 +1009,7 @@ class DMG_OSC_planner(object):
             side: robot_entity.pos2joint_gripper(init_conf[f'{side}_gripper'][0])
             for side in sides
         }
-        # Preserve the commanded grip because live finger positions relax on contact.
+            # Preserve the commanded grip because live finger positions relax on contact.
         carried_gripper_cmd = getattr(self, '_carried_gripper_cmd', {})
         closed_conf, _ = robot_entity.close_open_conf()
         default_closed = robot_entity.pos2joint_gripper(float(closed_conf[0]))

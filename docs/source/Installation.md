@@ -4,10 +4,9 @@ This guide covers the **simulation** route (robosuite/mujoco DMG tasks). For the
 real-robot stack (segmentation perception, GPD grasping, ROS), see
 [Real robot](Real_robot.md).
 
-Paths below are relative to the repo root or use `${REPO_ROOT}` (this repo, auto-set)
-and `${WS_ROOT}` (your external workspace, only for real-robot data). The
-learned-policy dependencies are vendored submodules and need no `.env` for the sim
-route (see [Configuration](Configuration.md)).
+All paths below are relative to the repo root or use `${WS_ROOT}` (your external
+workspace holding the sibling dependency repos) and `${REPO_ROOT}` (this repo).
+Set these via the `.env` file (see [Configuration](Configuration.md)).
 
 ## 1. Clone the repo and submodules
 
@@ -43,20 +42,15 @@ pip install "git+https://github.com/facebookresearch/pytorch3d.git"
 
 ## 4. dexmimicgen fork
 
-dexmimicgen must be installed **editable from a clone**: the DMG runners import
-its top-level `scripts` and `dexmimicgen.utils` packages at runtime, which a plain
-wheel install does not expose. Importing dexmimicgen also registers its robosuite
-envs.
+robosuite and robomimic are git-installed by `requirements.txt` (step 3).
+dexmimicgen is the exception — its task configs read scene-graph data through
+`env_dir=${DEXMIMICGEN_ROOT}`, so it must live on disk at that path rather than
+in site-packages:
 
 ```bash
-git clone https://github.com/JINXER000/dexmimicgen -b playback_3d <path>
-pip install -e <path> --config-settings editable_mode=compat
+git clone https://github.com/JINXER000/dexmimicgen -b playback_3d ${DEXMIMICGEN_ROOT}
+pip install -e ${DEXMIMICGEN_ROOT}
 ```
-
-`editable_mode=compat` puts the repo root on `sys.path` so the bare top-level
-`scripts` package resolves — modern (PEP 660) editable installs otherwise expose
-only declared packages. No `${DEXMIMICGEN_ROOT}` env var is needed; that macro is
-only referenced by the experimental `*_sdp.yaml` configs.
 
 If a stale `robosuite` is shadowing the editable install, remove it first:
 
@@ -67,60 +61,33 @@ rm -rf "${SITE}/robosuite"
 
 ## 5. Learned-policy sibling repos
 
-The learned-policy code repos — primitive learning (`primitive_learning`), the
-contact predictor (`contact_detector`), and Diffusion-Policy
-(`diffusion_policy_sg`) — ship as submodules of the release umbrella and are
-imported from `sys.path` at runtime (not pip-installed). Step 1's `--recursive`
-clone already populated them; if you cloned without it, initialize them now:
+The object-centric primitive-learning repo (`primitive_learning`) ships as a
+submodule of the release umbrella — initialize it from the umbrella checkout:
 
 ```bash
-git submodule update --init
+git submodule update --init primitive_learning
 ```
 
-`${PRIMITIVE_LEARNING_ROOT}`, `${CONTACT_PREDICTION_ROOT}` and
-`${DIFFUSION_POLICY_ROOT}` default to these vendored submodules automatically —
-no `.env` entry needed unless you want to point at a separate development
-checkout.
+The DMG / Diffusion-Policy skills are imported from sibling repos (added to
+`sys.path` at runtime, not pip-installed). Each is located by its own macro set
+in `.env` (see [Configuration](Configuration.md)). For a development checkout or
+a local override, clone anywhere and point the macro at it:
 
-The experimental SDP variants (`*_sdp.yaml`) additionally use
-`${SPHERICAL_DP_ROOT}` and `${DEXMIMICGEN_ROOT}`.
+```bash
+git clone https://github.com/Dr-LfD/DP_customized.git <DIFFUSION_POLICY_ROOT>
+git clone https://github.com/Dr-LfD/Equiv_primitive.git <PRIMITIVE_LEARNING_ROOT>
+# .env:
+export DIFFUSION_POLICY_ROOT=/abs/path/to/Diffusion-Policy
+export PRIMITIVE_LEARNING_ROOT=/abs/path/to/Equiv_primitive
+```
 
 equiv_primitive's graph-network extensions are built against the torch+CUDA installed in
-step 3. These wheels must match the exact `torch 2.1.0+cu121` build, so pin them:
+step 3:
 
 ```bash
-pip install torch-scatter==2.1.2 torch-cluster==1.6.3 torch-geometric==2.6.1 \
+pip install torch-scatter torch-cluster torch-geometric \
     -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
 ```
-
-The `per_skill` sim policy never imports these — the SDP / EquiformerV2 stack (real
-robot) is the first consumer — so a sim-only install can skip this step.
-
-### Submodule runtime dependencies
-
-Because the submodules are imported from `sys.path` rather than pip-installed,
-`requirements.txt` (step 3) does **not** pull their own dependencies. Their
-authoritative dependency lists are `primitive_learning/setup.py` and
-`diffusion_policy_sg/conda_environment.yaml`; the extras actually needed to run
-the DMG tasks are:
-
-```bash
-pip install wandb transformers          # equiv_primitive: skill/task BERT + logging
-```
-
-Two need special handling:
-
-- **gym** is pinned to `0.21.0` by `diffusion_policy_sg`, and its sdist fails to
-  build under modern setuptools. Install it isolated:
-  ```bash
-  pip install "setuptools<66" "wheel<0.40" && pip install gym==0.21.0
-  ```
-- **pytorch3d** must match your torch/CUDA build. No prebuilt wheel exists for the
-  `torch 2.1.0+cu121` stack above, so build it from source (needs the CUDA
-  toolkit / `nvcc`; install `cuda-nvcc` from conda if the system lacks it):
-  ```bash
-  pip install "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.6"
-  ```
 
 ## 6. Build native components
 
@@ -137,18 +104,9 @@ Rebuild IKFast whenever you change the Python environment.
 
 ## 7. Checkpoints
 
-Download the DMG / Diffusion-Policy checkpoints for the two tasks into
-`${REPO_ROOT}/ckpt/`, where the task configs already expect them:
-
-```bash
-python download_ckpts.py                  # both tasks (~2.9 GB)
-python download_ckpts.py --task threading # threading only
-```
-
-No manual placement is needed — the configs reference
-`${REPO_ROOT}/ckpt/dmg_<task>/{equi.pth,biop.pth,policy.ckpt}`. See
-[Configuration](Configuration.md) for the layout and the `--dp_ckpt` / `--sg`
-runtime overrides.
+Place the DMG / Diffusion-Policy checkpoints for the two tasks where the task
+configs expect them (see [Configuration](Configuration.md) for the config layout
+and the `--dp_ckpt` / `--sg` runtime overrides).
 
 You are now ready to run the simulation examples — see [Quickstart](Quickstart.md).
 

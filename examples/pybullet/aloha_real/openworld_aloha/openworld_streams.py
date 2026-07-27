@@ -130,6 +130,22 @@ PROXIMITY_COST_TERM = False
 REORIENT = False
 
 
+def _bounded_learned_trajs(sample_fn, label, max_attempts, restore, initial_seed=42):
+    fail_streak = 0
+    while True:
+        restore()
+        result = sample_fn(initial_seed + fail_streak)
+        if result[1] is None:  # arm_gripper_traj
+            fail_streak += 1
+            if fail_streak >= max_attempts:
+                print(f"[{label}] no feasible learned trajectory after "
+                      f"{fail_streak} attempts; exhausting stream")
+                return
+            continue
+        fail_streak = 0
+        yield result
+
+
 TELEPORT = [False]
 
 
@@ -381,7 +397,6 @@ def get_object_obs(obj_dict, pose = None, use_rgb = False):
     return agent_obs
 
 def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fixed_obj = [],  is_dmg = True, initial_pc_dict = None,  eff_grasps = None, **kwargs):
-    """Return the stream generator that produces trajectories for ``skill_name``."""
     ee_traj_mode = bool(kwargs.pop("ee_traj_mode", False))
     use_gui = bool(kwargs.pop("use_gui", False))
 
@@ -649,7 +664,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             traj_res_deg, ee_step_m, ee_step_rad, ee_steps_per_wp, solve_endpoint_ik,
         )
 
-    def unimanual_traj_gen(prep, pose, sk, equiv_obj):
+    def unimanual_traj_gen(prep, pose, sk, equiv_obj, seed=42):
         obs_key = prep.obs_key
         agent_obs = prep.agent_obs
         eef_key = prep.eef_key
@@ -669,7 +684,7 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             agent_obs,
             skill_name=prep.policy_skill,
             task_name=prep.task_name,
-            seed=42,
+            seed=seed,
         )
 
         shifted_eef_traj = np.array(group_actions[eef_key], copy=True)
@@ -704,26 +719,26 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
                 return None, None, None, None
             out_ids = np.array(out_ids_list)
 
-            # Use the model's first in-hand frame as the attach contact point.
+
+            switch_id_dense = int(np.argmin([hand_obj_dist_fn(p[0]) for p in ee_dense]))
+            sparse_switch_id = int(out_ids_list[switch_id_dense]) - 1 - n_pregrasp
+
             if skill_type == 'ATTACH':
                 in_hand = group_actions.get('in_hand')
                 if in_hand is None:
-                    raise ValueError(
+                    print(
                         f"ATTACH skill {sk}: model did not predict in_hand; "
-                        f"enable predict_in_hand=True in the equiv_primitive config"
+                        "using the minimum hand-object-distance waypoint instead"
                     )
-                flags = np.asarray(in_hand).reshape(-1)
-                if len(flags) != len(shifted_eef_traj):
-                    raise ValueError(
-                        f"ATTACH skill {sk}: in_hand length {len(flags)} != "
-                        f"eef trajectory length {len(shifted_eef_traj)}"
-                    )
-                onset = np.flatnonzero(flags >= 0.5)
-                sparse_switch_id = int(onset[0]) if onset.size else len(shifted_eef_traj) - 1
-            else:
-                switch_id_dense = int(np.argmin([hand_obj_dist_fn(p[0]) for p in ee_dense]))
-                # out_ids is augmented-sparse +1; subtract n_pregrasp to recover the demo frame index.
-                sparse_switch_id = int(out_ids_list[switch_id_dense]) - 1 - n_pregrasp
+                else:
+                    flags = np.asarray(in_hand).reshape(-1)
+                    if len(flags) != len(shifted_eef_traj):
+                        raise ValueError(
+                            f"ATTACH skill {sk}: in_hand length {len(flags)} != "
+                            f"eef trajectory length {len(shifted_eef_traj)}"
+                        )
+                    onset = np.flatnonzero(flags >= 0.5)
+                    sparse_switch_id = int(onset[0]) if onset.size else len(shifted_eef_traj) - 1
             sparse_switch_id = min(max(sparse_switch_id, 0), len(shifted_eef_traj) - 1)
             trans_w = np.array(shifted_eef_traj[sparse_switch_id], copy=True)
 
@@ -731,7 +746,16 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             conf_start_arm = prep.solve_endpoint_ik(ee_dense[0])
             conf_end_arm = prep.solve_endpoint_ik(ee_dense[-1])
             if conf_start_arm is None or conf_end_arm is None:
-                print("No valid endpoint IK found for EE trajectory — cannot build LearnedGrasp Conf")
+                if conf_start_arm is None and conf_end_arm is None:
+                    failed_endpoints = "both"
+                elif conf_start_arm is None:
+                    failed_endpoints = "start"
+                else:
+                    failed_endpoints = "end"
+                print(
+                    "No valid endpoint IK found for EE trajectory — cannot build "
+                    f"LearnedGrasp Conf (seed={seed}, failed_endpoint={failed_endpoints})"
+                )
                 return None, None, None, None
 
             # Align gripper commands with the EE path.
@@ -784,25 +808,6 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
         conf_end = arm_gripper_traj.last()
         return trans_w, arm_gripper_traj, conf_start, conf_end
 
-    def _bounded_learned_trajs(label, sample_fn):
-        """Yield successful (trans_w, arm_gripper_traj, conf_start, conf_end) tuples from
-        sample_fn (a unimanual_traj_gen call), retrying on a None trajectory. Exhausts via
-        StopIteration after learned_traj_max_attempts CONSECUTIVE failures (see above)."""
-        fail_streak = 0
-        while True:
-            robot_saver.restore()
-            result = sample_fn()
-            if result[1] is None:  # arm_gripper_traj
-                fail_streak += 1
-                if fail_streak >= learned_traj_max_attempts:
-                    print(f"[{label}] no feasible learned trajectory after "
-                          f"{fail_streak} attempts; exhausting stream")
-                    robot_saver.restore()
-                    return
-                continue
-            fail_streak = 0
-            yield result
-
     def gen_attach_traj(arm, obj, pose, sk):
         prep = unimanual_traj_prep(arm, obj, obj, pose, sk)
 
@@ -810,8 +815,9 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
             raise ValueError(f"Skill {sk} is not an attach skill!")
 
         for trans_w, arm_gripper_traj, conf_start, conf_end in _bounded_learned_trajs(
-                f"gen_attach_traj skill={sk} arm={arm} obj={obj}",
-                lambda: unimanual_traj_gen(prep, pose, sk, obj)):
+                lambda seed: unimanual_traj_gen(prep, pose, sk, obj, seed=seed),
+                label=f"gen_attach_traj skill={sk} arm={arm} obj={obj}",
+                max_attempts=learned_traj_max_attempts, restore=robot_saver.restore):
 
             contact_pose_relative = get_grasp_from_trans_w(trans_w, pose, offset_trans=prep.offset_trans)
 
@@ -1057,8 +1063,9 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
         prep = unimanual_traj_prep(arm, inv_obj, equiv_obj, pose, sk)
 
         for trans_w, arm_gripper_traj, conf_start, conf_end in _bounded_learned_trajs(
-                f"gen_detach_traj skill={sk} arm={arm} obj={equiv_obj}",
-                lambda: unimanual_traj_gen(prep, pose, sk, equiv_obj)):
+                lambda seed: unimanual_traj_gen(prep, pose, sk, equiv_obj, seed=seed),
+                label=f"gen_detach_traj skill={sk} arm={arm} obj={equiv_obj}",
+                max_attempts=learned_traj_max_attempts, restore=robot_saver.restore):
 
             place_pose_w = get_place_pose_from_trans_w(trans_w, \
                     inhand_grasp.grasp, offset_trans=prep.offset_trans)
@@ -1141,8 +1148,9 @@ def get_imitate_traj_fn(robot, equivSkill_info_dict, prefix_key, skill_name,  fi
         prep = unimanual_traj_prep(arm, inv_obj, equiv_obj, pose, sk)
 
         for trans_w, arm_gripper_traj, conf_start, conf_end in _bounded_learned_trajs(
-                f"gen_nonprehensile_traj skill={sk} arm={arm} obj={equiv_obj}",
-                lambda: unimanual_traj_gen(prep, pose, sk, equiv_obj)):
+                lambda seed: unimanual_traj_gen(prep, pose, sk, equiv_obj, seed=seed),
+                label=f"gen_nonprehensile_traj skill={sk} arm={arm} obj={equiv_obj}",
+                max_attempts=learned_traj_max_attempts, restore=robot_saver.restore):
 
             commands = [arm_gripper_traj]
             seq = Sequence(commands=commands, name="{}-{}-{}".format(sk, robot.side_from_arm(arm), equiv_obj))
@@ -1824,8 +1832,7 @@ def get_plan_motion_fn(
 
 
 def is_reachable(robot, arm, pose, oracle):
-    """Position-only reachability from the precomputed ALOHA coverage map. ``oracle`` is
-    None for robots without a map (non-aloha), for which every pose is reachable."""
+    """Return whether an arm can reach a pose; non-ALOHA robots are unrestricted."""
     if oracle is None:
         return True
     side = robot.side_from_arm(arm)
@@ -1844,17 +1851,11 @@ def get_reachability_test(robot, **kwargs):
 
 
 def get_mdf_clear_test(mdf_data, safety_margin=0.05):
-    """Certify CFreeMDF(o, p, sk): object o at candidate pose p clears the skill's
-    swept-volume Minimum Distance Field (MDF). The test depends only on the obstacle pose
-    (keypose-free), so the inlined universal CFreeMDF precondition forces the planner to
-    relocate a blocking obstacle before the bimanual policy runs.
-
-    mdf_data: dict from mdf_construction.load_mdf_dict (the skill's swept-volume MDF).
-    """
+    """Return a safety test for an object's candidate pose against a skill MDF."""
     from examples.pybullet.utils.pybullet_tools.utils import tform_from_pose
     from examples.pybullet.aloha_real.learned_classifier.mdf_construction import query_mdf_safe
 
-    # Cache homogeneous object points so each safety test only transforms them.
+    # Cache object-frame points; transform them per pose.
     _homog_cache = {}
 
     def _obj_homog(obj):
@@ -1870,7 +1871,7 @@ def get_mdf_clear_test(mdf_data, safety_margin=0.05):
         homog = _obj_homog(obj)
         if len(homog) == 0:
             return True
-        # object-frame points -> MDF world frame via the candidate world pose
+        # Transform object-frame points into the MDF world frame.
         pts_now = (tform_from_pose(pose.get_pose()) @ homog.T).T[:, :3]
         return query_mdf_safe(mdf_data, pts_now, safety_margin)
 

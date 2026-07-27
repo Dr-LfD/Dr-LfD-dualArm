@@ -16,14 +16,14 @@ Placeholders understood by :func:`load_yaml`:
 Each external dependency module has its own dedicated macro rather than a
 ``${WS_ROOT}/<module>`` sub-path, so a repo can live anywhere:
 
-* ``${PRIMITIVE_LEARNING_ROOT}``  -- equiv_primitive; defaults to ``<repo>/primitive_learning``.
-* ``${DIFFUSION_POLICY_ROOT}``    -- Diffusion-Policy code repo; defaults to ``<repo>/diffusion_policy_sg``.
-* ``${SPHERICAL_DP_ROOT}``        -- Spherical Diffusion Policy (experimental ``*_sdp`` configs).
-* ``${DEXMIMICGEN_ROOT}``         -- dexmimicgen (experimental ``*_sdp`` configs only).
-* ``${CONTACT_PREDICTION_ROOT}``  -- contact-prediction; defaults to ``<repo>/contact_detector``.
+* ``${PRIMITIVE_LEARNING_ROOT}``  -- equiv_primitive (object-centric primitive learning).
+* ``${DIFFUSION_POLICY_ROOT}``    -- Diffusion-Policy (visuomotor policies).
+* ``${DEXMIMICGEN_ROOT}``         -- dexmimicgen (sim env / data).
+* ``${CONTACT_PREDICTION_ROOT}``  -- contact-prediction (real-robot).
 
-An explicit environment variable wins over the submodule defaults. Any other
-unset variable is left verbatim so a missing path fails loudly at use time.
+All are listed in ``.env.example``. Unset variables are left verbatim so a
+missing path fails loudly at use time instead of resolving to a silently wrong
+location.
 """
 
 import os
@@ -91,24 +91,8 @@ def _expand(node) -> Any:
     return node
 
 
-# Map environment variables to their default submodule paths and sentinels.
-_SUBMODULE_DEFAULTS = {
-    "PRIMITIVE_LEARNING_ROOT": ("primitive_learning", "equiv_primitive"),
-    "CONTACT_PREDICTION_ROOT": ("contact_detector", "contact_pred"),
-    "DIFFUSION_POLICY_ROOT": ("diffusion_policy_sg", "diffusion_policy"),
-}
-
-
-def _apply_submodule_defaults():
-    for var, (subdir, sentinel) in _SUBMODULE_DEFAULTS.items():
-        candidate = os.path.join(REPO_ROOT, subdir)
-        if os.path.isdir(os.path.join(candidate, sentinel)):
-            os.environ.setdefault(var, candidate)
-
-
 def load_yaml(path) -> Any:
     """Load a YAML file, recursively expanding ``${VAR}`` placeholders in strings."""
     os.environ.setdefault("REPO_ROOT", REPO_ROOT)
-    _apply_submodule_defaults()
     with open(os.path.expanduser(path), "r") as stream:
         return _expand(yaml.load(stream, Loader=yaml.FullLoader))
