@@ -7,7 +7,7 @@ pose_control: True
 use_precomputed_path: False
 motion_tolerance: 0.07
 monitor_switch_t: 1
-temp_vis_dir: 'examples/pybullet/aloha_real/openworld_aloha/estimation/temp_vis/'
+temp_vis_dir: '${REPO_ROOT}/logs/aloha/temp_vis'
 
 # seg_branch: sam3 | grounded_sam only
 seg_branch: sam3
@@ -28,10 +28,10 @@ primitive_learning_path: '${PRIMITIVE_LEARNING_ROOT}'
 contact_prediction_root: '${CONTACT_PREDICTION_ROOT}'
 data_type: 'real'
 real_execute: True
-vid_save_path: 'lfd_tamp_vids'
+vid_save_path: '${REPO_ROOT}/logs/aloha/videos'
 
 use_schema: true
-schema_tmp_pddl_dir: '/tmp/pddlstream_aloha_debug'
+schema_tmp_pddl_dir: '${REPO_ROOT}/logs/aloha/schema'
 
 
 active_cams: ['cam2']
@@ -74,7 +74,7 @@ LfD_params:
   DP_path: '${DIFFUSION_POLICY_ROOT}/'
   # DP_input: 
   #   dummy_skill: ~ # to make DP_input a dict
-  DP_output: './data/eval/clean_cup/'
+  DP_output: '${REPO_ROOT}/logs/aloha/dp'
   DP_max_timesteps: 500 ## actually the time alloted for tamp + lfd together
   DP_num_inference_steps: 10
   DP_scale: 4

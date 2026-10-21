@@ -21,9 +21,7 @@ the pybullet and robosuite models, by a small **translation along Z**
 
 | Frame | Robot | Mounted on | Yaw about Z | Source |
 |---|---|---|---|---|
-| `tool_link` | single Panda (LIBERO) | `panda_link8` | **+135°** | `examples/pybullet/utils/models/franka_description/robots/panda_arm_hand.urdf`, `tool_joint` `rpy="0 0 2.35619449"`, z-offset 0.1 m |
 | `panda1_ee_link` / `panda2_ee_link` | dual Panda (DMG) | hand | 0° (orientation-equivalent to robosuite `right_hand`; position is hand + 0.100 m, see section 3) | `dmg_dual_panda.urdf` |
-| `panda_hand` | single Panda | `panda_link8` | −45° | same URDF, `panda_hand_joint` `rpy="0 0 -0.785398"` |
 
 The IK/planning target everywhere is the **tool frame** (`Manipulator.tool_name`),
 so grasp poses, `ee_path` waypoints and FK results are all expressed in it.
@@ -70,7 +68,6 @@ commanded pose lands in the `grip_site` frame the OSC controller tracks:
 | Robot | pybullet tool frame | required correction `C` (`tool ∘ C = grip_site`) | Set in |
 |---|---|---|---|
 | DMG dual Panda | `panda*_ee_link`, orientation ≡ `right_hand` | **Rz(−90°)** | class default, `interleaved_sim_osc_plugin.py` |
-| LIBERO single Panda | `tool_link` = link8 ∘ Rz(+135°) | **Rz(+90°)** (= Rz(−135° − 135°) mod 360°) | `interleaved_libero_plugin.py` (`Libero_OSC_planner`); `generic_grasp_plugin.py` aliases it |
 
 Joint-space execution needs **no** such correction — it commands joints
 directly, so the tool/grip_site mismatch never enters the loop. That is why a
@@ -90,7 +87,7 @@ identical in both models) out to the frame each side actually uses:
 
 | Side | Chain from link7 | Distance along approach axis | Sources |
 |---|---|---|---|
-| PyBullet (planning) | link7 → link8 (**+0.107**) → hand/tool mount (**+0**) → tool frame (**+0.100**) | **0.207 m** | `dmg_dual_panda.urdf` `panda*_joint8` + `panda*_ee_joint`; `panda_arm_hand.urdf` `tool_joint` (identical numbers for both robots) |
+| PyBullet (planning) | link7 → link8 (**+0.107**) → hand/tool mount (**+0**) → tool frame (**+0.100**) | **0.207 m** | `dmg_dual_panda.urdf` `panda*_joint8` + `panda*_ee_joint` |
 | Robosuite (execution) | link7 → `right_hand` (**+0.1065**) → PandaGripper root (**+0**) → `eef` body / `grip_site` (**+0.097**) | **0.2035 m** | `robosuite/models/assets/robots/panda/robot.xml:221`; `robosuite/models/assets/grippers/panda_gripper.xml` (`<body name="eef" pos="0 0 0.097">`) |
 
 The mismatch has **two independent contributions**:
@@ -102,9 +99,7 @@ The mismatch has **two independent contributions**:
 
 Net: the pybullet tool frame is **3.5 mm further out along +Z (toward the
 fingertips)** than the `grip_site` the OSC controller tracks. Expressed from
-link8: `tool = link8 + 0.100 m`, `grip_site = link8 + 0.0965 m`. The chain is
-numerically identical for the DMG dual Panda and the LIBERO single Panda — the
-robots differ only in the yaw conventions of section 2.
+link8: `tool = link8 + 0.100 m`, `grip_site = link8 + 0.0965 m`.
 
 **Failure mode when uncorrected.** Planning, IK, and the learned `ee_path` all
 express grasp poses in the tool frame. If the executor passes the FK'd tool
@@ -131,22 +126,14 @@ tool position along the approach axis, so that when `grip_site` converges
 there, the tool frame ends up exactly where the planner intended. Because all
 yaw corrections in section 2 rotate about local Z, they leave the local Z axis
 invariant — so applying the offset with the *uncorrected* tool rotation is
-exact, and the same class default is correct for both robots (it is **not**
-overridden per robot, unlike `GRIP_SITE_CORRECTION`).
+exact for both arms of the DMG dual Panda.
 
 As with the yaw corrections, joint-space execution is immune: it never converts
 through Cartesian space, so this offset must stay OSC-only.
 
 ## Verification record
 
-2026-06-12: with `GRIP_SITE_CORRECTION = Rz(+90°)` for the single Panda, both
-`generic_grasp_plugin.py --osc --grasp_backend m2t2` and `--grasp_backend gpd`
-completed `pick_up_the_black_bowl_on_the_cookie_box_and_place_it_on_the_plate`
-(`task_success: True`); frame dumps at gripper closure show the bowl rim
-spanning between the finger pads. Previously (identity correction) both
-backends grasped 90° off.
-
-2026-06-12 (later the same day): added `GRIP_SITE_POS_OFFSET = (0, 0, −0.0035)`.
+2026-06-12: added `GRIP_SITE_POS_OFFSET = (0, 0, −0.0035)`.
 A/B on DMG `two_arm_threading` OSC runs (one run each, so indicative rather
 than statistical): with the gripper settle/freeze/dwell hold but *without* the
 offset, the run aborted at the first replan with

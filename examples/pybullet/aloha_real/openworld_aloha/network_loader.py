@@ -39,7 +39,7 @@ def get_lfd_wrapper(cfg,  with_planning = True):
         elif env_type == 'dmg':
             from iterative_dmg_runner import Robosuite_Evaluator as DP_wrapper
 
-            lfd_wrapper = DP_wrapper(checkpoint_dict = checkpoint_dict, output = output_path, max_timesteps = LfD_params['DP_max_timesteps'], num_inference_steps = LfD_params['DP_num_inference_steps'], scale = LfD_params['DP_scale'], with_planning = True, record = LfD_params['vid_record'], render_obs_keys = LfD_params["render_obs_keys"])
+            lfd_wrapper = DP_wrapper(checkpoint_dict = checkpoint_dict, output = output_path, max_timesteps = LfD_params['DP_max_timesteps'], num_inference_steps = LfD_params['DP_num_inference_steps'], scale = LfD_params['DP_scale'], with_planning = True, record = LfD_params['vid_record'], render_obs_key = LfD_params["render_obs_keys"])
         else:
             raise ValueError(
                 f"Unsupported DP env_type {env_type!r}; expected one of: dmg, real"

@@ -49,9 +49,15 @@ python examples/pybullet/aloha_real/scripts/interleaved_sim_osc_plugin.py \
   (`${VAR}`/`~` are expanded).
 - `--dp_ckpt PATH` overrides the Diffusion-Policy checkpoint.
 
+### Gripper timing
+
+Both DMG task configurations hold the grasp pose for 30 control steps before
+closing the gripper and 30 steps after closing. Set `gripper_settle_steps` and
+`gripper_dwell_steps` in `sg_params` to adjust these durations.
+
 ## Expected output
 
-- A video is recorded under `lfd_tamp_vids/`.
+- A video is recorded under `logs/threading/dp/` or `logs/assembly/dp/`.
 - The run prints `Execution results: {... 'task_success': True/False ...}`.
 
 ## Troubleshooting

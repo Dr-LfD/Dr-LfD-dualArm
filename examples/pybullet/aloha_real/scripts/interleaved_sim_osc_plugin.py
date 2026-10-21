@@ -948,6 +948,12 @@ class DMG_OSC_planner(object):
         init_conf = self.lfd.get_cur_jpose_robosuite()
         arm_joints_len = len(robot_entity.joint_groups['left_arm'])
         gripper_joints_len = len(robot_entity.joint_groups['left_gripper'])
+        settle_steps = int(self.sg_param.get(
+            'gripper_settle_steps', self.GRIPPER_SETTLE_STEPS
+        ))
+        dwell_steps = int(self.sg_param.get(
+            'gripper_dwell_steps', self.GRIPPER_DWELL_STEPS
+        ))
 
         # -------- waypoint dimension helpers --------
 
@@ -1009,7 +1015,7 @@ class DMG_OSC_planner(object):
             side: robot_entity.pos2joint_gripper(init_conf[f'{side}_gripper'][0])
             for side in sides
         }
-            # Preserve the commanded grip because live finger positions relax on contact.
+        # Preserve the commanded grip because live finger positions relax on contact.
         carried_gripper_cmd = getattr(self, '_carried_gripper_cmd', {})
         closed_conf, _ = robot_entity.close_open_conf()
         default_closed = robot_entity.pos2joint_gripper(float(closed_conf[0]))
@@ -1069,12 +1075,12 @@ class DMG_OSC_planner(object):
 
                 for i, (next_pose, next_gripper) in enumerate(zip(poses, grippers)):
                     if i in holds:
-                        yield from emit(next_pose, holds[i], self.GRIPPER_SETTLE_STEPS)
+                        yield from emit(next_pose, holds[i], settle_steps)
                     last_pose = next_pose
                     last_gripper = next_gripper
                     yield from emit(last_pose, last_gripper, repeat)
                     if i in holds:
-                        yield from emit(last_pose, last_gripper, self.GRIPPER_DWELL_STEPS)
+                        yield from emit(last_pose, last_gripper, dwell_steps)
 
         def initial_hold_gripper(side):
             for primitive in per_arm_queue[side]:

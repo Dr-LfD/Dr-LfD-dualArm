@@ -2,6 +2,8 @@ from __future__ import print_function
 
 import os
 
+from repo_paths import repo_path
+
 from pddlstream.algorithms.reorder import get_partial_orders
 from pddlstream.language.constants import EQ, get_prefix, get_args, str_from_plan, is_parameter, \
     partition_facts
@@ -21,7 +23,7 @@ COST_COLOR = 'LightSalmon'
 STREAM_COLOR = 'LightSteelBlue'
 FUNCTION_COLOR = 'LightCoral'
 
-VISUALIZATIONS_DIR = 'visualizations/'
+VISUALIZATIONS_DIR = repo_path('logs', 'visualizations')
 CONSTRAINT_NETWORK_DIR = os.path.join(VISUALIZATIONS_DIR, 'constraint_networks/')
 STREAM_PLAN_DIR = os.path.join(VISUALIZATIONS_DIR, 'stream_plans/')
 PLAN_LOG_FILE = os.path.join(VISUALIZATIONS_DIR, 'log.txt')
@@ -46,11 +48,15 @@ def reset_visualizations():
     clear_dir(VISUALIZATIONS_DIR)
     ensure_dir(CONSTRAINT_NETWORK_DIR)
     ensure_dir(STREAM_PLAN_DIR)
+    ensure_dir(PLAN_LOG_FILE)
+    if os.path.exists(PLAN_LOG_FILE):
+        os.remove(PLAN_LOG_FILE)
 
 def log_plans(stream_plan, action_plan, iteration):
     # TODO: do this within the focused algorithm itself?
     from pddlstream.retired.synthesizer import decompose_stream_plan
     decomposed_plan = decompose_stream_plan(stream_plan)
+    ensure_dir(PLAN_LOG_FILE)
     with open(PLAN_LOG_FILE, 'a+') as f:
         f.write('Iteration: {}\n'
                 'Component plan: {}\n'

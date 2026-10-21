@@ -4,6 +4,7 @@ import time
 from itertools import combinations, count
 
 import numpy as np
+from repo_paths import repo_path
 from examples.pybullet.utils.pybullet_tools.utils import (
     INF,
     TEMP_DIR,
@@ -39,7 +40,8 @@ def create_vhacd(input_path, output_path=None, client=None, **kwargs):
     # https://github.com/bulletphysics/bullet3/blob/afa4fb54505fd071103b8e2e8793c38fd40f6fb6/examples/pybullet/examples/vhacd.py
     if output_path is None:
         output_path = os.path.join(TEMP_DIR, "vhacd_{}.obj".format(next(VHACD_CNT)))
-    log_path = os.path.join(TEMP_DIR, "vhacd_log.txt")
+    log_path = repo_path("logs", "vhacd_log.txt")
+    ensure_dir(log_path)
     with HideOutput(enable=True):
         client.vhacd(
             input_path,

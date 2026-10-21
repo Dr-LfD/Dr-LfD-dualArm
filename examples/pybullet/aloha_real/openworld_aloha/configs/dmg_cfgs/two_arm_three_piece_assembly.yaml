@@ -1,7 +1,7 @@
 # OSC_POSE absolute-EE execution variant of two_arm_three_piece_assembly
 use_gui: False
 robot_name: 'pandadual'
-vid_save_path: 'lfd_tamp_vids'
+vid_save_path: '${REPO_ROOT}/logs/assembly/videos'
 text_prompt:  ['base', 'piece_1', 'piece_2']
 primitive_learning_path: '${PRIMITIVE_LEARNING_ROOT}'
 env_dir: '${DEXMIMICGEN_ROOT}/'
@@ -11,7 +11,7 @@ pyb_env_addon: []
 require_obstacle_pc: False
 
 use_schema: true
-schema_tmp_pddl_dir: '/tmp/pddlstream_aloha_debug'
+schema_tmp_pddl_dir: '${REPO_ROOT}/logs/assembly/schema'
 skill_yaml_paths:
   - 'examples/pybullet/aloha_real/openworld_aloha/configs/dmg_cfgs/two_arm_three_piece_assembly.yaml'
 
@@ -45,6 +45,10 @@ sg_params:
   ee_traj_steps_per_waypoint: 1   # sim steps held at each waypoint
 
 
+  # Hold the grasp pose before closing and before lifting (control steps).
+  gripper_settle_steps: 30
+  gripper_dwell_steps: 30
+
 LfD_params:
   lfd_alg: 'DP'
   DP_path: '${DIFFUSION_POLICY_ROOT}'
@@ -54,7 +58,7 @@ LfD_params:
  
 
   vid_record: False
-  DP_output: './data/eval/dmg_assembly/'
+  DP_output: '${REPO_ROOT}/logs/assembly/dp'
 
   DP_max_timesteps: 1500
   DP_num_inference_steps: 10
