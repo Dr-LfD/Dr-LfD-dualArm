@@ -5,9 +5,21 @@
 </p>
 
 **Decompose and Reorganize**: Planning with Primitives and Visuomotor Policies Learned from Demonstrations.
+Accepted to *IEEE Transactions on Robotics* (T-RO).
+
+[Yizhou Chen](https://jinxer000.github.io/),
+[Hang Xu](https://scholar.google.com/citations?user=_tNUciIAAAAJ),
+[Dongjie Yu](https://manutdmoon.github.io/),
+[Yupu Lu](https://scholar.google.com/citations?user=sodxBZkAAAAJ),
+Tengye Xu,
+[Zeqing Zhang](https://benjizhang.github.io/),
+[Wei Zhang](http://www.wzhanglab.site/),
+Yi Ren,
+[Ben M. Chen](http://www.mae.cuhk.edu.hk/~bmchen/),
+[Jia Pan](https://www.cds.hku.hk/staff/pan-jia/)
 
 [![Project Page](https://img.shields.io/badge/Project-Page-2f80ed)](https://dr-lfd.github.io/DR-LfD-website/)
-[![Paper](https://img.shields.io/badge/arXiv-Coming_Soon-b31b1b)](https://github.com/Dr-LfD/Dr-LfD-dualArm)
+[![Paper](https://img.shields.io/badge/arXiv-2607.25397-b31b1b)](https://arxiv.org/abs/2607.25397)
 [![Code](https://img.shields.io/badge/GitHub-DR--LfD-181717?logo=github)](https://github.com/Dr-LfD/Dr-LfD-dualArm)
 [![Checkpoints](https://img.shields.io/badge/Hugging%20Face-Checkpoints-ffcc4d?logo=huggingface)](https://huggingface.co/ConvexBuchi/dr-lfd-ckpt)
 [![Video](https://img.shields.io/badge/Demo-Video-8e44ad)](#rollout-videos)
@@ -134,7 +146,7 @@ Two runnable bimanual DMG instances:
 
 Each run records a video under `logs/threading/dp/` or `logs/assembly/dp/` and prints
 `Execution results: {... 'task_success': True/False ...}`. See
-[Quickstart](docs/source/Quickstart.md) for prerequisites and troubleshooting.
+[Quickstart](docs/source/Quickstart.md) for prerequisites and troubleshooting. If everything runs well, you will get around 70%--90% success rate on these two tasks. 
 
 ## Related modules
 
@@ -147,3 +159,14 @@ separate modules:
   wrist-camera contact prediction.
 - [Equivariant Primitive Learning](https://github.com/Dr-LfD/Equiv_primitive)
   — SIM(3)-equivariant diffusion model for object-centric  primitives.
+
+## Citation
+
+```bibtex
+@article{chen2026decompose,
+  title   = {Decompose and Reorganize: Planning with Primitives and Visuomotor Policies Learned from Demonstrations},
+  author  = {Chen, Yizhou and Xu, Hang and Yu, Dongjie and Lu, Yupu and Xu, Tengye and Zhang, Zeqing and Zhang, Wei and Ren, Yi and Chen, Ben M. and Pan, Jia},
+  journal = {arXiv preprint arXiv:2607.25397},
+  year    = {2026}
+}
+```
